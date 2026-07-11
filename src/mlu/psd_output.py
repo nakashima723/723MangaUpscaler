@@ -71,13 +71,13 @@ def save_layered_grayscale_psd(
     black = np.zeros_like(line_image, dtype=np.float32)
     white = np.ones_like(line_image, dtype=np.float32)
 
+    # PSD layer records are stored from bottom to top.  Applications render the
+    # last record at the top of the layer palette, so keep Background first in
+    # the file even though the user-facing stack is documented top to bottom.
     layers = (
         _PsdLayer(
-            name="Line Art",
-            channels=(
-                (0, _compress_channel(black, bit_depth)),
-                (-1, _compress_channel(line_alpha, bit_depth)),
-            ),
+            name="Background",
+            channels=((0, _compress_channel(white, bit_depth)),),
         ),
         _PsdLayer(
             name="Grayscale Tone",
@@ -87,8 +87,11 @@ def save_layered_grayscale_psd(
             ),
         ),
         _PsdLayer(
-            name="Background",
-            channels=((0, _compress_channel(white, bit_depth)),),
+            name="Line Art",
+            channels=(
+                (0, _compress_channel(black, bit_depth)),
+                (-1, _compress_channel(line_alpha, bit_depth)),
+            ),
         ),
     )
 

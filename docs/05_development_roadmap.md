@@ -927,7 +927,7 @@ GUIの配布・更新対象を単体EXEだけに統一し、フォルダ版の�
 - [x] Microsoft runtimeの取得元を公式Visual Studio Redistへ固定し、不要なpywin32を配布物から除外する
 - [x] ローカルGit repositoryを`main` branchで初期化し、公開候補のsecret scanを行う
 - [x] GitHub owner、repository名、Authors、Reviewers、Approversを確定してpublic repositoryへ初回pushする
-- [ ] GitHub-hosted buildから同じonefile形式のunsigned 1.00 pre-releaseを公開する
+- [x] GitHub-hosted buildから同じonefile形式のunsigned 1.00 pre-releaseを公開する
 - [ ] SignPath Foundation審査、GitHub App、Project、Artifact Configuration、Signing Policy連携を完了する
 - [ ] protected `main`のrelease workflowで最終EXEへ信頼済み署名を付け、検証済みSHA-256とともに公開する
 
@@ -940,7 +940,7 @@ GUIの配布・更新対象を単体EXEだけに統一し、フォルダ版の�
 
 ### 現状
 
-ローカルの署名・検証・fail-closed release工程とWindows version resourceは実装済み。一時的なnon-exportable自己署名証明書で、SHA-256 Authenticode、DigiCert RFC 3161 timestamp、改ざん検知、代表画像の画素一致を確認し、証明書と一時成果物は削除した。公開準備では、権利未確定assetを公開対象から除外し、合成sample、hash固定wheel、SHA固定GitHub Actions、SignPath Artifact Configurationと手動承認workflowを追加した。MSVC/OpenMP runtimeは公式Visual Studio Redist由来を検証し、不要なpywin32は除外した。公開先は`nakashima723/723MangaUpscaler`、管理者は`nakashima723`として確定し、公開リポジトリ、protected `main`、CI、CodeQLを設定済みである。グレースケール・PSD対応後の依存関係と実EXEも再監査し、公式Apache-2.0全文へLICENSEを是正した。未署名pre-release専用workflowはSignPath提出と分離して用意したが、公開とFoundation申請は未実施である。自己署名は配布先で信頼されないため、本番 `dist/723MangaUpscaler.exe` は意図的に未署名のままである。
+ローカルの署名・検証・fail-closed release工程とWindows version resourceは実装済み。一時的なnon-exportable自己署名証明書で、SHA-256 Authenticode、DigiCert RFC 3161 timestamp、改ざん検知、代表画像の画素一致を確認し、証明書と一時成果物は削除した。公開準備では、権利未確定assetを公開対象から除外し、合成sample、hash固定wheel、SHA固定GitHub Actions、SignPath Artifact Configurationと手動承認workflowを追加した。MSVC/OpenMP runtimeは公式Visual Studio Redist由来を検証し、不要なpywin32は除外した。公開先は`nakashima723/723MangaUpscaler`、管理者は`nakashima723`として確定し、公開リポジトリ、protected `main`、CI、CodeQLを設定済みである。グレースケール・PSD対応後の依存関係と実EXEも再監査し、公式Apache-2.0全文へLICENSEを是正した。SignPath提出と分離したGitHub-hosted workflowから `v1.00-unsigned.1` を公開し、公開EXEのSHA-256、未署名状態、metadata、PNG/PSD画素一致を確認した。Foundation申請と信頼済み署名は未実施である。自己署名は配布先で信頼されないため、本番 `dist/723MangaUpscaler.exe` は意図的に未署名のままである。
 
 ## フェーズ32：バージョン1.00・初期プレビュー文言更新
 
@@ -1126,6 +1126,32 @@ GUIで「線画とグレー部分を分けて出力」を選んだ場合に、�
 ### 現状
 
 GUIのseparate選択時だけ「PSDで出力する」を表示し、既定ONとした。PSD v1のGrayscale header、レイヤーrecord、透明度channel、PackBits RLE、merged imageを専用writerで実装した。sample07の2倍PSDは8-bit Grayscale、2896x2172、3レイヤーとしてPillow、psd-tools、ImageMagickで再読込でき、merged imageは既存composite PNGと全画素一致した。CLI・YAMLは後方互換のPNG既定を維持する。
+
+## フェーズ38：PSDレイヤー順と分離プレビュー修正
+
+### 目的
+
+分離PSDを一般的なPSD readerで開いたときに背景を最下層へ置き、GUIの出力側プレビューでは保存形式にかかわらず線画と階調を統合した見え方を表示する。
+
+### タスク
+
+- [x] PSD file layer orderをbottom-to-topの `Background / Grayscale Tone / Line Art` にする
+- [x] レイヤー名だけでなく対応channel dataも同じ順で書き出す
+- [x] separateのライブプレビューを一時composite PNGとして生成する
+- [x] PSD OFFの分離PNG出力後も主線PNGとtone sidecarを統合表示する
+- [x] PSD record順、レイヤー再合成、composite画素一致の回帰テストを追加する
+- [x] 全テスト、静的検査、単体EXE診断を完了する
+
+### 完了条件
+
+- PSDアプリの表示順が上から `Line Art / Grayscale Tone / Background` になる。
+- 全レイヤーからの再合成が埋込merged imageと最大1LSB以内で一致する。
+- separateのライブ・出力後プレビューがcompositeと同じ見え方になる。
+- legacy、line_only、compositeの出力とプレビューを変更しない。
+
+### 現状
+
+PSD recordとchannel dataをbottom-to-topへ統一し、preview時だけ非破壊コピーした設定をcompositeへ切り替えた。PNG分離出力後はtone sidecarのalphaから階調を復元して主線と乗算する。依存追加と配布境界変更はない。
 
 ## Codex向け実装単位
 

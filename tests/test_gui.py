@@ -25,6 +25,7 @@ from mlu.gui import (
     format_brightness_label,
     generate_output_preview_image,
     load_export_config,
+    load_output_preview_image,
     main,
     make_batch_output_paths,
     make_output_path,
@@ -384,6 +385,98 @@ def test_generated_preview_pixels_match_actual_output_exactly(tmp_path) -> None:
             assert np.array_equal(np.asarray(preview), np.asarray(actual.convert("L")))
     finally:
         preview.close()
+
+
+def test_separate_preview_matches_composite_instead_of_line_layer(tmp_path) -> None:
+    input_path = tmp_path / "gray_input.png"
+    composite_path = tmp_path / "composite.png"
+    line_path = tmp_path / "line.png"
+    source = np.full((48, 64), 160, dtype=np.uint8)
+    source[8:40, 30:34] = 0
+    source[22:26, 8:56] = 0
+    Image.fromarray(source).save(input_path)
+    common_overrides = {
+        "io": {"overwrite": True},
+        "pipeline": {"scale": 2},
+        "sdf": {"soft_sdf_threshold": 0.291},
+    }
+    separate_config = load_config(
+        preset="line_only",
+        cli_overrides={
+            **common_overrides,
+            "grayscale_processing": {"mode": "separate"},
+        },
+    )
+    composite_config = load_config(
+        preset="line_only",
+        cli_overrides={
+            **common_overrides,
+            "grayscale_processing": {"mode": "composite"},
+        },
+    )
+
+    preview = generate_output_preview_image(input_path, separate_config)
+    assert separate_config["grayscale_processing"]["mode"] == "separate"
+    assert separate_config["grayscale_processing"]["separate_output_format"] == "png"
+    upscale_image(input_path, composite_path, composite_config, preset="line_only")
+    upscale_image(input_path, line_path, separate_config, preset="line_only")
+    try:
+        with Image.open(composite_path) as composite, Image.open(line_path) as line:
+            preview_pixels = np.asarray(preview)
+            np.testing.assert_array_equal(
+                preview_pixels,
+                np.asarray(composite.convert("L")),
+            )
+            assert not np.array_equal(preview_pixels, np.asarray(line.convert("L")))
+    finally:
+        preview.close()
+
+
+def test_separated_png_output_preview_merges_line_and_tone_files(tmp_path) -> None:
+    line_path = tmp_path / "separate.png"
+    tone_path = tmp_path / "separate_tone.png"
+    line = np.array([[255, 128], [64, 0]], dtype=np.uint8)
+    tone = np.array([[160, 200], [240, 255]], dtype=np.uint8)
+    tone_rgba = np.zeros((2, 2, 4), dtype=np.uint8)
+    tone_rgba[..., 3] = 255 - tone
+    Image.fromarray(line).save(line_path)
+    Image.fromarray(tone_rgba).save(tone_path)
+
+    preview = load_output_preview_image(
+        line_path,
+        tone_output_path=tone_path,
+    )
+    try:
+        expected = (line.astype(np.uint16) * tone.astype(np.uint16) // 255).astype(
+            np.uint8
+        )
+        np.testing.assert_array_equal(np.asarray(preview), expected)
+    finally:
+        preview.close()
+
+
+def test_finished_separated_png_export_previews_tone_sidecar(tmp_path) -> None:
+    output_path = tmp_path / "output.png"
+    tone_path = tmp_path / "output_tone.png"
+    loaded: list[tuple[Path, Path | None]] = []
+    app = SimpleNamespace(
+        _export_running=True,
+        _set_controls_enabled=lambda _enabled: None,
+        status_text=_StubVariable(""),
+        output_preview_enabled=_StubVariable(True),
+        _load_output_preview=lambda path, *, tone_output_path=None: loaded.append(
+            (path, tone_output_path)
+        ),
+    )
+
+    UpscalerGui._finish_export(
+        app,
+        output_path,
+        None,
+        tone_output_path=tone_path,
+    )
+
+    assert loaded == [(output_path, tone_path)]
 
 
 def test_minimum_brightness_preview_is_not_solid_black(tmp_path) -> None:
@@ -858,18 +951,19 @@ def test_batch_worker_continues_after_a_file_fails(tmp_path, monkeypatch) -> Non
     calls: list[Path] = []
     finished: list[tuple[Path | None, int, tuple[tuple[Path, str], ...], object]] = []
 
-    def fake_upscale(input_path, _output_path, _config, *, preset) -> None:
+    def fake_upscale(input_path, _output_path, _config, *, preset):
         assert preset == "line_only"
         calls.append(input_path)
         if input_path == jobs[1][0]:
             raise ValueError("broken image")
+        return SimpleNamespace(tone_output_path=None)
 
     app = SimpleNamespace(
         status_text=_StubVariable(""),
         _load_export_config=lambda **_kwargs: {},
         after=lambda _delay, callback: callback(),
-        _finish_batch_export=lambda first, succeeded, failures, error: finished.append(
-            (first, succeeded, failures, error)
+        _finish_batch_export=lambda first, succeeded, failures, error, **_kwargs: (
+            finished.append((first, succeeded, failures, error))
         ),
         _pipeline_lock=gui_module.threading.Lock(),
     )
