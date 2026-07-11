@@ -2181,3 +2181,234 @@ GUIに載せる場合も、既定値は0で完全無効にし、品質確認後�
 - 同commitのCodeQL security analysisも成功した。
 - `main`保護では`test`と`codeql`をrequired status checksとし、branchを最新に保つこと、管理者を含むforce push禁止、branch削除禁止、conversation解決を必須にする。
 - SignPath実申請、GitHub App接続、secret/variable設定、署名要求は引き続き実施していない。
+
+## 2026-07-11 フェーズ33：相対線画・階調分離と3出力モード
+
+### 改修内容
+
+- `src/mlu/layer_separation.py` を追加した。半径6 source pxのグレースケールclosingで局所階調 `B` を推定し、入力輝度 `I` に対して `C=(B-I)/max(B,1/255)` を相対線濃度とする。
+- weak相対差0.035・絶対差1/255、strong相対差0.12・絶対差3/255を初期値にし、strong seedをweak support内で8近傍伝播する。これにより黒100%固定ではなく、周囲の階調に対する暗化として線を扱う。
+- `grayscale_processing.mode` に後方互換の `legacy` と、`line_only`、`separate`、`composite` を追加した。既定は従来画素を変えない `legacy` のままである。
+- `separate` は主線画PNGに加え、拡大済み階調を黒RGB・`alpha=1-tone_luminance` とした `*_tone.png` を出力する。白背景へ合成すると階調を復元できる。
+- `composite` は分離した階調を指定upscalerで拡大してから同じ線alphaを合成する。外部upscaler未指定時は階調枝だけLanczosを使う。
+- GUIへ「階調の扱い」メニューを追加し、ライブプレビュー、単体出力、フォルダ一括出力へ凍結した選択値を渡すようにした。分離tone副出力も次回の一括入力から除外する。
+- CLIの `upscale`、`inspect`、`batch`、`compare` へ `--grayscale-mode` を追加した。run JSONとbatch summaryへモード・副出力・分離診断値を残す。
+- 新しい `scipy.ndimage.grey_closing` を配布最小構成の許可APIへ追加した。
+
+### sample07での確認
+
+- `images/input/sample07.png` は不透明RGBA 1448x1086で、既存I/Oによりグレースケール化して処理した。
+- 2倍の `line_only`、`separate`、`composite` を `tmp/sample07_grayscale_modes/` に生成した。出力寸法は2896x2172。
+- 全体線マスク率は従来35.40%から21.87%へ低下した。
+- 暗い空ROI `(x=680..1099, y=10..249)` は、従来100%を線扱いしていたが、新方式では9.01%となった。空の階調面を除去しつつ、電線・電柱・建物線は線画出力へ残った。
+- `line_only` と `separate` の主線画は同一処理で、透明階調レイヤーと合成出力は同じ線gammaを使う。
+
+### 今後同じミスをしないための有益な失敗
+
+- 絶対輝度thresholdを調整しても、暗いグラデーション面とその上の線は原理的に分けられない。線を局所背景に対する相対吸収率として扱う必要がある。
+- モルフォロジーclosingは単調グラデーションの画像端でpadding由来の偽線を作る。外側の情報がないため、推定半径6pxの画像端は相対分離を抑制した。端に接する線の最初の6pxは既知のトレードオフである。
+- `separate` の主出力だけ空いていても既存の `*_tone.png` があれば、先に主出力を書いてから失敗すると部分出力になる。副出力も書き込み前に予約・存在確認する。
+- GUI一括出力の除外regexへ `_tone` を追加しないと、入力と出力を同じフォルダにした次回処理で透明階調PNGを入力として拾う。
+- 新しいSciPy APIを追加した場合、ソーステストだけでなく最小PyInstaller構成のAPI allowlistと単体EXEを確認する。
+- closing半径より太い黒ベタ、密集線、線と階調が完全同化した領域は一意に分離できない。透明階調レイヤーへ密集線の薄い残像が残る場合があり、現段階では設定調整対象とする。
+
+### 検証
+
+- Ruffが成功し、全223テストが成功した。
+- 合成fixtureで同じ絶対グレー値の面/線判別、明暗階調をまたぐ乗算線、滑らかなグラデーション、完全同化時の非捏造を確認した。
+- `separate` のtone PNGはRGBA、黒RGB、`alpha=1-luminance` で、白背景上の復元誤差が1/255以内である。
+- `line_only` と `separate` の主線画一致、2レイヤー再合成と `composite` の差が量子化込み2/255以内、tone副出力の事前衝突検査を確認した。
+- 単体EXEを再ビルドし、`--version`、`--check-config`、`--check-ui`、`--check-upscale` が終了コード0となった。
+- EXEは33,924,212 byte、SHA-256 `A8E46C9F94CF7D3A80C7EBE453792564B63D9D654B173C161E16AC1F7DD68BC2`。SignPath審査前のため署名状態は `NotSigned` である。
+
+### ロードマップ状態
+
+- 相対線画・階調分離フェーズ33についての未達成ロードマップは残り0件。
+- コード署名フェーズ31についての未達成ロードマップは残り3件。
+- 次の作業予定は、ユーザー目視結果に基づき、密集線残像と線幅の初期パラメータを調整することです。
+
+## 2026-07-11 フェーズ34：グレー部分メニュー文言と相対モード線幅調整
+
+### 改修内容
+
+- GUI見出しを「階調の扱い」から「グレー部分の扱い」へ変更した。
+- 選択肢を「線画と黒ベタのみ」「グレー部分を除去して線画のみ出力」「線画とグレー部分を分けて出力」「グレー部分を線画と合成して出力」へ変更した。内部識別子 `legacy / line_only / separate / composite` は維持した。
+- 最長の日本語選択肢が欠けないよう、見出し幅を112px、プルダウン幅を300pxへ拡張した。
+- `grayscale_processing.line_width_bias_source_px` を追加し、既定を `-0.75` source pxとした。SDFの既存 `width_bias_source_px` へ、非legacyの3モードだけ加算する。legacyとPotraceには適用しない。
+- run JSONへ補正指定値、適用有無、実効SDF width biasを記録し、CLI表示も実効値を表示するようにした。
+- README、設定例、CLI仕様、アルゴリズム設計、ロードマップを更新した。
+
+### 線幅調整の検証
+
+- sample07の2倍・`soft_sdf_threshold=0.22` で `0.0` から `-1.0` source pxまで比較した。
+- `-0.75` では50%濃度の代表線幅中央値が6pxから4pxで正確に2/3、線占有面積が67.7%、面積/骨格長による幅指標が71.1%となった。骨格長は95.3%維持した。
+- `-0.80` は50%輪郭が `-0.75` と同一だが残存線をさらに薄くし、`-1.0` は細線分断が増えたため、幾何幅を約2/3にする値として `-0.75` を採用した。
+- GUI既定相当の閾値0.291でも50%線占有率67.5%、幅指標71.4%で、明るさ設定が変わっても同程度の補正になった。
+- 補正後の `line_only` と `separate` 主線画は画素完全一致し、透明グレーレイヤーからの再合成と `composite` の差は最大1LSBだった。
+
+### 今後同じミスをしないための有益な失敗
+
+- 線の「濃さ」を総インク量だけで合わせると、輪郭幅が同じままエッジと芯だけを余計に薄くする場合がある。今回は利用者の指定が線幅なので、50%濃度輪郭、骨格、EDTによる代表幅を主指標にした。
+- 固定SDF biasは代表幅を近似的に2/3へする補正であり、あらゆる元線幅を厳密な比例率で縮小するものではない。run JSONへ実効値を残し、後から素材別に調整可能にする。
+- pipeline内だけで暗黙に実効biasを変え、run JSONへ元configだけを保存すると再現条件が分からない。指定補正値、適用有無、合算後の実効値を別々に記録する。
+- 既定EXEを利用者がGUIとして起動中にPyInstallerを走らせると、最終EXE置換で `PermissionError: [WinError 5]` になる。利用者のプロセスは終了せず、別名のstaged EXEを生成して診断する。
+
+### 検証
+
+- Ruffが成功し、全225テストが成功した。
+- GUI実体で見出し、既定表示、4選択肢を確認する回帰テストを追加した。
+- 合成3px線の2倍出力で、補正なし6px、補正あり4pxを確認した。legacyは元のSDF biasを変更せず、相対3モードだけ加算するテストも成功した。
+- `sample07_line_only_x2.png`、`sample07_separate_x2.png`、tone副出力、`sample07_composite_x2.png` を補正後の内容へ更新した。
+- 起動中の既定 `dist/723MangaUpscaler.exe` は置換せず、`dist/723MangaUpscaler_updated.exe` をビルドした。`--version`、`--check-config`、`--check-ui`、`--check-upscale` はすべて終了コード0だった。
+- staged EXEは33,925,792 byte、SHA-256 `C7C49019BC7C4192BDC58EECCAA3F03171AF2DA2B52B612EA4539349B5932C84`。SignPath審査前のため署名状態は `NotSigned` である。
+
+### ロードマップ状態
+
+- グレー部分メニュー文言・相対モード線幅調整フェーズ34についての未達成ロードマップは残り0件。
+- コード署名フェーズ31についての未達成ロードマップは残り3件。
+- 次の作業予定は、起動中の旧GUIを閉じた後、staged EXEを既定の `723MangaUpscaler.exe` として再ビルドすることです。
+
+## 2026-07-11 フェーズ35：グレー分離時の線画品質回復
+
+### 原因と改修内容
+
+- 旧相対モードは相対コントラストをweak/strong間の検出確信度へ変換し、その確信度をそのまま描画coverageへ使っていた。相対コントラスト0.12以上が即100% coverageになり、線量が近くても輪郭位置、接続、太さがlegacyと一致しなかった。
+- 検出確信度 `line_probability`、tone除去用support、物理的な相対線alpha `C=(B-I)/max(B,tone_floor)`、SDF描画用coverageを別の値として扱うようにした。
+- `quality_hybrid` を既定coverage方式として追加した。モルフォロジーclosing前の有効な局所背景をルーティング値とし、背景0.90以下では相対coverage、0.98以上ではlegacyの `line_soft`、中間ではsmoothstep補間する。
+- 相対側coverageは物理alphaへ固定gain 2.425を掛ける。gainはSDF閾値から動的算出せず、GUIの明るさ操作とCLIのthresholdが線の採否へ引き続き作用するようにした。
+- hybridが白地で拾った線もtone置換supportへ含めた。画像端ではborder抑制前の局所背景をtone目標へ使い、分離toneへの線残りとcompositeの二重線を防いだ。
+- `grayscale_processing.line_width_bias_source_px` の既定を `-0.75` から `0.0` へ戻した。ユーザー指示どおり線品質の再現を優先し、負biasは追加で細くしたい素材だけの任意設定として維持した。
+- run JSONへcoverage方式、固定gain、白地blend範囲、物理線alphaと描画coverageの統計を追加した。デバッグ出力へ相対線alpha、描画coverage、legacy blend weightを追加した。
+- CLIの `inspect` も、任意の相対モード線幅biasを含む実効SDF biasを表示するよう統一した。
+
+### sample07での品質評価
+
+- `images/input/sample07.png` を2倍で再生成し、`tmp/sample07_grayscale_modes/` へ `line_only`、`separate`、tone副出力、`composite`、GUI明るさ0相当を保存した。
+- 白背景のlegacy比較は、GUI既定threshold 0.291でprecision 99.9950%、recall 99.9952%、IoU 99.9902%だった。CLI既定threshold 0.22ではprecision 99.9903%、recall 99.9928%、IoU 99.9831%だった。
+- 平坦グレー内部39,615 source pxでは、両thresholdともsource coverageとHR線alphaの偽線率は0%だった。階調矩形の硬い境界を含めると線候補が生じるため、急峻な階調境界を線と区別できない点は既知制約とする。
+- `line_only / separate / composite` のHR線alphaは完全一致し、`line_only` と `separate` の主PNGも画素完全一致した。
+- tone副出力を白上で復元して線PNGと乗算した結果は、floatのcompositeと完全一致した。8bit PNGでは最大1LSB、2LSB以上の差は0画素だった。
+- 既定の追加線幅biasは0.0であり、今回の出力は従来の約2/3幅を目標にしたものではない。白地の線形状と細線接続をlegacyへ戻すことを優先した。
+
+### 今後同じミスをしないための有益な失敗
+
+- 線の検出確信度は線の物理濃度ではない。確信度をcoverageへ流用すると、strong閾値以上が一律に飽和し、線が膨張して輪郭品質が落ちる。検出、tone除去、描画の値を明示的に分離する。
+- 3px線の50%輪郭だけで固定 `-0.75` source pxを選ぶと、二値化後SDFの量子化により1px斜線が方向依存で薄くなり、消える場合がある。代表幅だけでなく1px斜線の最大alpha、接続、legacy一致も必ず回帰確認する。
+- coverage gainを現在のSDF閾値から逆算すると、利用者が明るさを変えても実効相対閾値が変わらず、GUI操作を相殺してしまう。gainは固定し、明るさ3点で出力面積の単調性を確認する。
+- 白地のlegacy coverageを線枝だけへ混ぜても、tone除去supportへ含めなければcompositeで元線とSDF線が二重になる。3モードの線alpha一致だけでなく、画像端線のtone残像と再合成も確認する。
+- モルフォロジー推定のborder抑制後の値だけで白地判定すると、画像端の線をlegacyへルーティングできない。線検出用の安全な推定値と、白地ルーティング用の推定値を分けて保持する。
+
+### 検証
+
+- Ruffが成功し、全231テストが成功した。`pip check`でも壊れた依存はなかった。
+- 1px斜線のlegacy完全一致、GUI相当 -10/0/+10のSDF面積単調減少、画像端線のtone除去、3相対モードのHR線alpha完全一致を回帰テストへ追加した。
+- `dist/723MangaUpscaler.exe` を再ビルドし、`--version`、`--check-config`、`--check-ui`、`--check-upscale` がすべて終了コード0となった。代表合成線画のEXE版とソース版は画素完全一致した。
+- EXEは33,927,120 byte、SHA-256 `4B4582CB8EBC58BE2D27F42F7CB906ED5042188EC6FF199555E2B13937D5FBA8`。ProductVersionは1.00、FileVersionは1.00.0.0、SignPath審査前のため署名状態は `NotSigned` である。
+
+### ロードマップ状態
+
+- グレー分離時の線画品質回復フェーズ35についての未達成ロードマップは残り0件。
+- コード署名フェーズ31についての未達成ロードマップは残り3件。
+- 次の作業予定は、次回公開版の機能範囲とlicenseを再監査し、GitHub-hosted buildから同形式のunsigned pre-releaseを公開することです。
+
+## 2026-07-11 フェーズ36：未接続のグレー分離専用線幅補正削除
+
+### 確認結果と改修内容
+
+- `grayscale_processing.line_width_bias_source_px` はGUIへ接続されておらず、YAMLで指定した場合だけ非legacyのSDF幅へ加算する内部専用項目だった。既定は0.0なので通常出力へは作用していなかった。
+- 上記専用設定を既定configとvalidationから削除し、非legacy時だけconfigを複製してSDF幅を加算する `effective_line_render_config` を削除した。
+- pipelineは全モードで同じconfigをSDF rendererへ直接渡すようにした。既存の全モード共通 `sdf.width_bias_source_px` は、一般的なCLI・設定機能として維持した。
+- run JSONから専用補正指定値、適用有無、合算後実効値を削除した。通常のSDF診断には共通width biasが引き続き記録される。
+- 専用 `-0.75` 比較テスト、加算テスト、品質テスト内の不要な0.0指定を削除した。1px斜線、明るさ単調性、画像端線、3モード一致の品質回帰は維持した。
+- README、設定例、CLI仕様、アルゴリズム設計から専用補正の現行説明を削除し、グレー分離には専用線幅biasを持たない仕様へ統一した。過去フェーズ34・35の記録は変更履歴として維持した。
+
+### 今後同じミスをしないための有益な失敗
+
+- GUIで利用者が操作できず、既定値では作用しない実験設定を「念のため」残すと、config、pipeline分岐、メタデータ、テスト、文書の保守対象だけが増える。採用しない調整経路は履歴へ残し、実行コードからは削除する。
+- 共通SDF幅biasとグレー分離専用biasを併存させると、run JSONに指定値と実効値の両方が必要になり、どちらが線品質へ影響したか分かりにくい。線幅は共通設定、グレー分離はcoverage推定という責務へ分ける。
+
+### 検証
+
+- Ruffが成功し、全229テストが成功した。`pip check`でも壊れた依存はなかった。
+- sample07のGUI明るさ0相当で `line_only / separate / composite` を再生成し、run JSONの `grayscale_processing` が `mode / tone_output_path / alpha_convention / separation` だけになったことを確認した。
+- `dist/723MangaUpscaler.exe` を再ビルドし、`--version`、`--check-config`、`--check-ui`、`--check-upscale` がすべて終了コード0となった。代表合成線画のEXE版とソース版は画素完全一致した。
+- EXEは33,926,465 byte、SHA-256 `E5FC688D7BFD04F99E4BA2F7427C5C3FBB86883E1A51B47BC3B6429674ED8A9D`。ProductVersionは1.00、FileVersionは1.00.0.0、署名状態は `NotSigned` である。
+
+### ロードマップ状態
+
+- 未接続のグレー分離専用線幅補正削除フェーズ36についての未達成ロードマップは残り0件。
+- コード署名フェーズ31についての未達成ロードマップは残り3件。
+- 次の作業予定は、次回公開版の機能範囲とlicenseを再監査し、GitHub-hosted buildから同形式のunsigned pre-releaseを公開することです。
+
+## 2026-07-11 フェーズ37：グレー分離レイヤーのPSD出力
+
+### 改修内容
+
+- GUIの「線画とグレー部分を分けて出力」を選択した場合だけ「PSDで出力する」チェックを表示し、既定ONとした。他の3モードでは非表示とし、利用者がOFFにした値はモードを切り替えて戻っても保持する。
+- 単体・一括とも、処理開始時にPSD選択値をUI threadで確定してworker引数へ渡す。ライブプレビューは表示画素だけを確認するため常に一時PNGを使い、PSDを生成しない。
+- GUIのPSD ONでは出力拡張子を `.psd` とし、同名が存在する場合は連番へ進む。OFFでは従来どおり主線 `.png` と `_tone.png` を予約する。
+- `grayscale_processing.separate_output_format` に `png / psd` を追加した。CLI・YAML既定は後方互換のPNG、GUIはチェック既定ONを明示的にPSDへ変換する。CLIへ `--separate-output-format` を追加し、batchもPSD拡張子とsummary形式を扱う。
+- `src/mlu/psd_output.py` に外部依存なしのPSD v1 writerを追加した。Grayscaleカラーモード、8/16 bits/channel、最大30,000px/辺、PackBits RLEへ対応する。
+- PSDレイヤーは上から `Line Art`、`Grayscale Tone`、`Background` とした。線画とグレーは黒いgrayscale channelと透明度channel、背景は不透明白であり、すべてNormal表示したmerged imageは `tone * final_line` になる。
+- pipelineはPSD ONで単一PSDだけを保存し、PNG sidecarを作らない。OFFでは従来の2 PNGを維持する。run JSONには出力形式とalpha規約を、batch summaryには出力形式を記録する。
+- inspectとcompareは比較・debug画像をPillowで扱うため、設定ファイルがPSD指定でも一時出力だけPNGへ固定した。
+- GUI/EXEの隠し診断 `--check-separate-psd` を追加し、配布物自身からPSDを生成できることを検査可能にした。
+
+### sample07と互換性の検証
+
+- `images/input/sample07.png` をGUI明るさ0相当、2倍で `tmp/sample07_grayscale_modes/sample07_separate_gui0_x2.psd` へ出力した。
+- PSDは6,517,280 byte、2896x2172、8-bit Grayscale、document channel 1、レイヤー順は `Line Art / Grayscale Tone / Background` だった。
+- Pillow、psd-tools 1.10.9、ImageMagickの3系統で再読込した。PSD merged imageと既存 `sample07_composite_gui0_x2.png` は最大差0で、全画素一致した。
+- 16-bit小型fixtureもGrayscale depth 16、3レイヤーとしてpsd-toolsとImageMagickで再読込した。
+- PSD OFFの既存PNG経路、主線PNGとtone PNGの命名、透明度、最大1LSB再合成は従来テストを維持した。
+
+### 今後同じミスをしないための有益な失敗
+
+- PillowはPSDを読み込めてもレイヤーPSDを書き出せない。環境に偶然入っていたpsd-toolsを未宣言のまま使うと、clean buildで失敗し、scikit-image等の依存とライセンスも増える。配布サイズを維持するため、必要なPSD v1機能だけを独立writerへ閉じ込めた。
+- 最初のPackBits実装はliteral blockへ129 byte入る場合があり、制御byte `0x80` がNOPとして解釈された。小型画像のmerged previewは読めてもsample07のlayer channelが短く復号されるという有益な失敗だった。literalを必ず128 byte以下へ分割し、2896 byteの混在scanline round-tripテストを追加した。
+- PSDのmerged imageだけが正しくてもlayer channelが壊れている可能性がある。merged画像を読むPillowに加え、layer channelを展開するpsd-toolsと、別実装のImageMagickでも検証する。
+- PSD選択をworker内でTk変数から読み直すと、出力開始後のUI変更で一括jobの形式が混在し得る。scale、threshold、modeと同様に開始時点で値を凍結する。
+
+### 検証
+
+- Ruffが成功し、全239テストが成功した。`pip check`でも壊れた依存はなかった。
+- 実GUI生成テストでチェックの文言、既定ON、separate時だけ表示、OFF値保持、処理中control管理を確認した。
+- `dist/723MangaUpscaler.exe` を再ビルドし、`--version`、`--check-config`、`--check-ui`、`--check-upscale`、`--check-separate-psd` がすべて終了コード0となった。EXE生成PSDも8-bit Grayscale、3レイヤーとして再読込できた。
+- EXEは33,935,013 byte、SHA-256 `CA0CE0D1E9677CA78BD4827951BA4C37CFFC6078473D8DD0B5C41C17A54EA75B`。ProductVersionは1.00、FileVersionは1.00.0.0、署名状態は `NotSigned` である。
+
+### ロードマップ状態
+
+- グレー分離レイヤーPSD出力フェーズ37についての未達成ロードマップは残り0件。
+- コード署名フェーズ31についての未達成ロードマップは残り3件。
+- 次の作業予定は、次回公開版の機能範囲とlicenseを再監査し、GitHub-hosted buildから同形式のunsigned pre-releaseを公開することです。
+
+## 2026-07-11 フェーズ38：更新版の公開・ライセンス再監査・SignPath申請前ゲート
+
+### 監査と改修内容
+
+- グレースケール相対分離、PNG分離出力、3レイヤーPSD出力を含む更新差分を公開対象として再監査した。新規コードは標準ライブラリと既存のNumPy、SciPy、Pillowだけを使い、新しいPython依存、Adobe SDK、追加codec、AI model、外部EXEを導入していない。
+- 更新後のone-file EXE archiveと第三者通知を照合し、CPython、Tcl/Tk、NumPy/OpenBLAS、SciPy、Pillow、PyYAML、CustomTkinter、darkdetect、DIPlib、packaging、PyInstaller bootloader、Microsoft runtimeの収録物とライセンス原文に対応漏れがないことを確認した。
+- 旧LICENSEはApache-2.0を名乗っていたが、patent termination、warranty、liabilityの一部を含む公式条項が欠落しており、GitHubも`NOASSERTION`と判定していた。GitHub公式Apache-2.0テンプレート全文へ置換し、正規化後の完全一致を確認した。
+- `legacy`、`line_only`、`composite`で`.psd`を指定した場合に、PNGデータを誤った拡張子で保存できる問題を修正した。`separate + psd`は`.psd`だけ、その他は`.png`だけを処理開始前に受け付ける。
+- GitHub-hosted build専用の`unsigned-prerelease.yml`を追加した。protected `main`とversion tagの一致、hash固定依存、Ruff、全テスト、ライセンス収集、one-file build、未署名状態、Windows metadata、PNG/PSDのソース版との画素一致を検証し、SHA-256付きの明確な未署名pre-releaseだけを公開する。SignPath token、slug、提出actionは含めていない。
+- README、コード署名policy、公開手順、ライセンス監査記録を、更新版のPNG/PSD機能と「未署名pre-release公開、Foundation申請、審査承認後に実署名」という順序へ更新した。
+
+### 今後同じミスをしないための有益な失敗
+
+- ライセンス名と見出しが正しくても、本文を手作業で整形・短縮すると法的意味を持つ句が欠落し得る。OSIライセンス本文は公式テンプレートをそのまま使用し、GitHubのSPDX判定も公開後に確認する。
+- 出力形式を追加したとき、writer側だけを分岐して拡張子を検証しないと、PNG bytesの`.psd`のような見かけ上成功する破損成果物を作れる。処理開始前にmode、format、suffixの組を検証し、誤った組のnegative testを持つ。
+- Windows PowerShell 5.1の`PSModulePath`へPowerShell 7用moduleが先に入る環境では、`Get-AuthenticodeSignature`の自動importが失敗する。ローカル診断ではWindows PowerShell標準module pathを明示し、CIは隔離された`windows-2022` runnerで再検証する。
+- PyInstallerのresource更新は一時的な`EndUpdateResourceW`エラーを返す場合がある。内蔵retryが成功したか最終終了コードと完成EXEのmetadataを確認し、警告1行だけで失敗と判断しない。
+
+### 検証
+
+- Ruff、全243テスト、`pip check`、`git diff --check`が成功した。
+- 正規化したルートLICENSEがGitHub公式Apache-2.0本文と完全一致した。
+- `dist/723MangaUpscaler.exe`を再ビルドし、`--version`、`--check-config`、`--check-ui`、`--check-upscale`、`--check-separate-psd`がすべて終了コード0となった。PNGとPSD統合画像はソース版と画素完全一致した。
+- EXEは33,935,601 byte、SHA-256 `6EDA8F8FB38CF3DE1AB4040277C7C1BB3D372C8EB99AE32E80696F029B2C2E06`。ProductVersionは1.00、FileVersionは1.00.0.0、署名状態は`NotSigned`である。
+
+### ロードマップ状態
+
+- 更新版の公開前監査についての未達成ロードマップは残り0件。
+- コード署名フェーズ31についての未達成ロードマップは残り3件。
+- 次の作業予定は、更新版をprotected `main`へ反映し、GitHub-hosted buildからunsigned 1.00 pre-releaseを公開することです。

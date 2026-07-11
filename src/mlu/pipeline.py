@@ -13,12 +13,23 @@ from mlu.composite import composite_black_lines, white_canvas
 from mlu.debug_layers import build_run_metadata, run_json_path, save_debug_layers, save_run_json
 from mlu.directional_smoothing import smooth_directional_alpha
 from mlu.grayscale import FloatImage
-from mlu.io import ImageData, load_image, save_grayscale_png
+from mlu.io import (
+    ImageData,
+    load_image,
+    save_grayscale_png,
+    save_luminance_as_alpha_png,
+)
+from mlu.layer_separation import LayerSeparationResult, separate_relative_layers
 from mlu.line_stabilizer import stabilize_line_alpha
 from mlu.mask_extract import LineMaps, extract_line_maps
 from mlu.potrace_render import render_potrace_line_alpha
+from mlu.psd_output import save_layered_grayscale_psd
 from mlu.sdf_render import SDFRenderResult, render_line_alpha
-from mlu.tone_source import ToneSourceResult, generate_tone_source
+from mlu.tone_source import (
+    ToneSourceResult,
+    detect_likely_pure_lineart,
+    generate_tone_source,
+)
 from mlu.upscaler_external import UpscalerResult, upscale_tone_source
 
 
@@ -38,6 +49,10 @@ class PipelineResult:
     debug_paths: tuple[Path, ...]
     run_json_path: Path | None
     run_metadata: dict[str, Any] | None
+    separation_result: LayerSeparationResult | None = None
+    tone_output_path: Path | None = None
+    grayscale_mode: str = "legacy"
+    separate_output_format: str | None = None
 
 
 def upscale_image(
@@ -51,18 +66,58 @@ def upscale_image(
 ) -> PipelineResult:
     """Run the MVP line-art upscaling pipeline for one image."""
 
-    image = load_image(input_path, invert=invert)
-    line_maps = extract_line_maps(image.array, config)
-    tone_source_result = generate_tone_source(image.array, line_maps, config)
-    tone_used_in_final, tone_skip_reason = decide_tone_usage(tone_source_result, config)
-    if tone_used_in_final:
-        upscaler_result = upscale_tone_source(tone_source_result.image, config)
-    else:
-        upscaler_result = white_canvas_upscaler_result(
-            tone_source_result.image.shape,
-            config,
-            reason=tone_skip_reason,
+    grayscale_mode = str(config.get("grayscale_processing", {}).get("mode", "legacy"))
+    if grayscale_mode not in {"legacy", "line_only", "separate", "composite"}:
+        raise ValueError(f"Unsupported grayscale_processing.mode: {grayscale_mode}")
+    output = Path(output_path)
+    separate_output_format: str | None = None
+    if grayscale_mode == "separate":
+        separate_output_format = str(
+            config.get("grayscale_processing", {}).get(
+                "separate_output_format",
+                "png",
+            )
         )
+    _validate_output_extension(
+        output,
+        grayscale_mode=grayscale_mode,
+        separate_output_format=separate_output_format,
+    )
+
+    image = load_image(input_path, invert=invert)
+    separation_result: LayerSeparationResult | None = None
+    if grayscale_mode == "legacy":
+        line_maps = extract_line_maps(image.array, config)
+        tone_source_result = generate_tone_source(image.array, line_maps, config)
+        tone_used_in_final, tone_skip_reason = decide_tone_usage(tone_source_result, config)
+        if tone_used_in_final:
+            upscaler_result = upscale_tone_source(tone_source_result.image, config)
+        else:
+            upscaler_result = white_canvas_upscaler_result(
+                tone_source_result.image.shape,
+                config,
+                reason=tone_skip_reason,
+            )
+    else:
+        separation_result = separate_relative_layers(image.array, config)
+        line_maps = separation_result.line_maps
+        tone_source_result = tone_source_from_separation(
+            image.array,
+            separation_result,
+            line_maps,
+        )
+        tone_used_in_final = grayscale_mode == "composite"
+        if grayscale_mode in {"separate", "composite"}:
+            upscaler_result = upscale_separated_tone(tone_source_result.image, config)
+            tone_skip_reason = None if tone_used_in_final else "tone written as a separate layer"
+        else:
+            tone_skip_reason = "grayscale_processing.mode is line_only"
+            upscaler_result = white_canvas_upscaler_result(
+                tone_source_result.image.shape,
+                config,
+                reason=tone_skip_reason,
+            )
+
     save_metadata = debug_dir is not None or bool(
         config.get("debug", {}).get("save_run_json", False)
     )
@@ -122,28 +177,56 @@ def upscale_image(
         centerline_simplification_stats=simplification.stats,
     )
     composite_config = config.get("composite", {})
-    if _can_use_binary_composite_fast_path(
+    if grayscale_mode == "legacy" and _can_use_binary_composite_fast_path(
         sdf_result,
         config,
         tone_used_in_final=tone_used_in_final,
     ):
         final = np.float32(1.0) - sdf_result.line_alpha_hr
     else:
+        composite_base = (
+            upscaler_result.image
+            if tone_used_in_final
+            else white_canvas(sdf_result.line_alpha_hr.shape)
+        )
         final = composite_black_lines(
-            upscaler_result.image,
+            composite_base,
             sdf_result.line_alpha_hr,
             line_darkness=float(composite_config.get("line_darkness", 1.0)),
             edge_alpha_gamma=float(composite_config.get("edge_alpha_gamma", 1.0)),
             clamp=bool(composite_config.get("clamp", True)),
         )
 
-    output = Path(output_path)
-    save_grayscale_png(
-        output,
-        final,
-        bit_depth=int(config["io"]["output_bit_depth"]),
-        overwrite=bool(config["io"]["overwrite"]),
-    )
+    tone_output: Path | None = None
+    if grayscale_mode == "separate":
+        if separate_output_format == "png":
+            tone_output = separated_tone_path(output)
+            if tone_output.exists() and not bool(config["io"]["overwrite"]):
+                raise FileExistsError(f"Output already exists: {tone_output}")
+
+    output_bit_depth = int(config["io"]["output_bit_depth"])
+    overwrite = bool(config["io"]["overwrite"])
+    if grayscale_mode == "separate" and separate_output_format == "psd":
+        save_layered_grayscale_psd(
+            output,
+            line_image=final,
+            tone_image=upscaler_result.image,
+            bit_depth=output_bit_depth,
+            overwrite=overwrite,
+        )
+    else:
+        save_grayscale_png(
+            output,
+            final,
+            bit_depth=output_bit_depth,
+            overwrite=overwrite,
+        )
+    if tone_output is not None:
+        save_luminance_as_alpha_png(
+            tone_output,
+            upscaler_result.image,
+            overwrite=overwrite,
+        )
 
     debug_paths: tuple[Path, ...] = ()
     if debug_dir is not None:
@@ -155,6 +238,7 @@ def upscale_image(
             final,
             tone_source_result=tone_source_result,
             upscaler_result=upscaler_result,
+            separation_result=separation_result,
         )
 
     metadata: dict[str, Any] | None = None
@@ -179,7 +263,10 @@ def upscale_image(
         metadata["line_stabilizer"] = {
             "segment_count": len(sdf_result.line_segments),
         }
-        metadata["sdf_diagnostics"] = build_sdf_diagnostics(sdf_result, config)
+        metadata["sdf_diagnostics"] = build_sdf_diagnostics(
+            sdf_result,
+            config,
+        )
         metadata["directional_smoothing"] = sdf_result.directional_smoothing_stats or {
             "enabled": bool(config.get("directional_smoothing", {}).get("enabled", False)),
             "applied": False,
@@ -206,6 +293,21 @@ def upscale_image(
             "skip_reason": tone_skip_reason,
         }
         metadata["upscaler"] = upscaler_result.to_metadata()
+        metadata["grayscale_processing"] = {
+            "mode": grayscale_mode,
+            "separate_output_format": separate_output_format,
+            "tone_output_path": str(tone_output) if tone_output is not None else None,
+            "alpha_convention": (
+                "black grayscale pixels with transparency channels"
+                if separate_output_format == "psd"
+                else "alpha = 1 - tone_luminance"
+                if tone_output is not None
+                else None
+            ),
+            "separation": (
+                separation_result.to_metadata() if separation_result is not None else None
+            ),
+        }
         save_run_json(metadata_path, metadata)
 
     return PipelineResult(
@@ -221,7 +323,78 @@ def upscale_image(
         debug_paths=debug_paths,
         run_json_path=metadata_path,
         run_metadata=metadata,
+        separation_result=separation_result,
+        tone_output_path=tone_output,
+        grayscale_mode=grayscale_mode,
+        separate_output_format=separate_output_format,
     )
+
+
+def _validate_output_extension(
+    output_path: Path,
+    *,
+    grayscale_mode: str,
+    separate_output_format: str | None,
+) -> None:
+    expected_suffix = (
+        ".psd"
+        if grayscale_mode == "separate" and separate_output_format == "psd"
+        else ".png"
+    )
+    if output_path.suffix.lower() != expected_suffix:
+        raise ValueError(
+            f"Output path must use {expected_suffix} for grayscale mode "
+            f"{grayscale_mode!r}."
+        )
+
+
+def tone_source_from_separation(
+    source: FloatImage,
+    separation: LayerSeparationResult,
+    line_maps: LineMaps,
+) -> ToneSourceResult:
+    """Adapt a relative separation result to the existing tone branch."""
+
+    is_pure, midtone_ratio = detect_likely_pure_lineart(
+        separation.tone,
+        line_maps.line_mask,
+    )
+    if line_maps.line_mask.any():
+        line_lift_ratio = float(
+            np.mean((separation.tone - source)[line_maps.line_mask])
+        )
+    else:
+        line_lift_ratio = 0.0
+    return ToneSourceResult(
+        image=separation.tone,
+        mode="relative_separation",
+        is_likely_pure_lineart=is_pure,
+        line_lift_ratio=line_lift_ratio,
+        midtone_ratio=midtone_ratio,
+    )
+
+
+def upscale_separated_tone(
+    tone_source: FloatImage,
+    config: dict[str, Any],
+) -> UpscalerResult:
+    """Upscale separated tone, using Lanczos when no tone engine was selected."""
+
+    requested_engine = str(config.get("upscaler", {}).get("engine", "none"))
+    if requested_engine != "none":
+        return upscale_tone_source(tone_source, config)
+    lanczos_config = {
+        **config,
+        "upscaler": {**config.get("upscaler", {}), "engine": "lanczos"},
+    }
+    return upscale_tone_source(tone_source, lanczos_config)
+
+
+def separated_tone_path(output_path: str | Path) -> Path:
+    """Return the sibling RGBA path used by separate grayscale mode."""
+
+    output = Path(output_path)
+    return output.with_name(f"{output.stem}_tone.png")
 
 
 def render_line_branch(
@@ -257,6 +430,7 @@ def build_sdf_diagnostics(
     diagnostics: dict[str, Any] = {
         "distance_source": sdf_config.get("distance_source"),
         "soft_sdf_threshold": sdf_config.get("soft_sdf_threshold"),
+        "width_bias_source_px": sdf_config.get("width_bias_source_px"),
         "soft_alpha_mode": sdf_config.get("soft_alpha_mode"),
         "soft_gain": sdf_config.get("soft_gain"),
     }
@@ -342,10 +516,18 @@ def inspect_image(
     """Run analysis and debug output without writing a separate final output path."""
 
     debug_path = Path(debug_dir)
+    inspect_config = {
+        **config,
+        "io": {**config["io"], "overwrite": True},
+        "grayscale_processing": {
+            **config.get("grayscale_processing", {}),
+            "separate_output_format": "png",
+        },
+    }
     return upscale_image(
         input_path,
         debug_path / "06_final.png",
-        config | {"io": {**config["io"], "overwrite": True}},
+        inspect_config,
         invert=invert,
         debug_dir=debug_path,
         preset=preset,

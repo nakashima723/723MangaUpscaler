@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image
 
 from mlu.grayscale import rgb_to_grayscale, rgba_to_grayscale_on_white
-from mlu.io import load_image, save_grayscale_png
+from mlu.io import load_image, save_grayscale_png, save_luminance_as_alpha_png
 
 
 def test_rgb_to_grayscale_uses_srgb_coefficients() -> None:
@@ -38,3 +38,18 @@ def test_load_image_invert_and_save_8bit_png(tmp_path) -> None:
     assert image.array.shape == (1, 3)
     assert saved.mode == "L"
     assert saved_array.tolist() == [[255, 127, 0]]
+
+
+def test_save_luminance_as_alpha_png_round_trips_over_white(tmp_path) -> None:
+    path = tmp_path / "tone.png"
+    tone = np.array([[1.0, 0.75, 0.5, 0.0]], dtype=np.float32)
+
+    save_luminance_as_alpha_png(path, tone)
+
+    with Image.open(path) as image:
+        rgba = np.asarray(image)
+        assert image.mode == "RGBA"
+    assert np.array_equal(rgba[0, :, :3], np.zeros((4, 3), dtype=np.uint8))
+    assert np.allclose(rgba[0, :, 3], [0, 64, 128, 255], atol=1)
+    reconstructed = 1.0 - rgba[..., 3].astype(np.float32) / 255.0
+    assert np.allclose(reconstructed, tone, atol=1.0 / 255.0)

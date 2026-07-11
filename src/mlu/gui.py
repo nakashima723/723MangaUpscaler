@@ -17,7 +17,7 @@ from PIL import Image, ImageOps, ImageTk
 
 from mlu import __version__
 from mlu.config import ConfigError, load_config
-from mlu.pipeline import upscale_image
+from mlu.pipeline import separated_tone_path, upscale_image
 from mlu.scales import SUPPORTED_SCALES
 
 BRIGHTNESS_MIN = -10
@@ -32,9 +32,16 @@ OUTPUT_PREVIEW_CONFIRM_PIXELS = 36_000_000
 OUTPUT_PREVIEW_DEBOUNCE_MS = 200
 SUPPORTED_GUI_EXTENSIONS = ("png", "jpg", "jpeg", "tif", "tiff", "bmp")
 ALL_EXTENSIONS_LABEL = "すべての対応画像"
+GRAYSCALE_MODE_LABELS = {
+    "線画と黒ベタのみ": "legacy",
+    "グレー部分を除去して線画のみ出力": "line_only",
+    "線画とグレー部分を分けて出力": "separate",
+    "グレー部分を線画と合成して出力": "composite",
+}
+DEFAULT_GRAYSCALE_MODE_LABEL = next(iter(GRAYSCALE_MODE_LABELS))
 INVALID_FILENAME_FILTER_CHARS = frozenset('<>:"/\\|?*')
 GUI_OUTPUT_NAME_PATTERN = re.compile(
-    r".+_x(?:2|3|4|6|8)_thr\d{3}(?:_\d+)?\.png",
+    r".+_x(?:2|3|4|6|8)_thr\d{3}(?:_\d+)?(?:(?:_tone)?\.png|\.psd)",
     re.IGNORECASE,
 )
 
@@ -63,6 +70,7 @@ class OutputPreviewRequest:
     scale: int
     threshold: float
     output_size: tuple[int, int]
+    grayscale_mode: str = "legacy"
 
 
 @dataclass(frozen=True)
@@ -99,11 +107,37 @@ def format_brightness_label(brightness: int) -> str:
     return f"明るさ: {level_text}"
 
 
+def selected_grayscale_mode(gui: object) -> str:
+    """Resolve the current GUI mode, defaulting old/test callers to legacy."""
+
+    variable = getattr(gui, "grayscale_mode_label", None)
+    if variable is None:
+        return "legacy"
+    label = variable.get()
+    try:
+        return GRAYSCALE_MODE_LABELS[label]
+    except KeyError as exc:
+        raise ValueError(f"未対応の階調処理モードです: {label}") from exc
+
+
+def selected_separate_psd(gui: object, grayscale_mode: str) -> bool:
+    """Return the frozen PSD choice, defaulting old/test callers to PNG."""
+
+    variable = getattr(gui, "separate_psd_enabled", None)
+    return bool(
+        grayscale_mode == "separate"
+        and variable is not None
+        and variable.get()
+    )
+
+
 def load_export_config(
     *,
     scale: int,
     threshold: float,
     overwrite: bool = False,
+    grayscale_mode: str = "legacy",
+    separate_output_format: str = "png",
 ) -> dict[str, Any]:
     """Load the exact processing configuration used by GUI exports."""
 
@@ -123,21 +157,44 @@ def load_export_config(
                 "soft_gain": 0.0,
             },
             "upscaler": {"engine": "none"},
+            "grayscale_processing": {
+                "mode": grayscale_mode,
+                "separate_output_format": separate_output_format,
+            },
             "debug": {"save_layers": False, "save_run_json": False},
         },
     )
 
 
-def make_output_path(input_path: Path, output_dir: Path, *, scale: int, threshold: float) -> Path:
+def make_output_path(
+    input_path: Path,
+    output_dir: Path,
+    *,
+    scale: int,
+    threshold: float,
+    grayscale_mode: str = "legacy",
+    separate_psd: bool = False,
+) -> Path:
     """Return a unique GUI output path in the selected folder."""
 
     threshold_text = f"{int(round(threshold * 100)):03d}"
-    base = output_dir / f"{input_path.stem}_x{scale}_thr{threshold_text}.png"
-    if not base.exists():
+    extension = ".psd" if grayscale_mode == "separate" and separate_psd else ".png"
+    base = output_dir / f"{input_path.stem}_x{scale}_thr{threshold_text}{extension}"
+    if _gui_output_path_available(
+        base,
+        grayscale_mode=grayscale_mode,
+        separate_psd=separate_psd,
+    ):
         return base
     for index in range(2, 10_000):
-        candidate = output_dir / f"{input_path.stem}_x{scale}_thr{threshold_text}_{index}.png"
-        if not candidate.exists():
+        candidate = output_dir / (
+            f"{input_path.stem}_x{scale}_thr{threshold_text}_{index}{extension}"
+        )
+        if _gui_output_path_available(
+            candidate,
+            grayscale_mode=grayscale_mode,
+            separate_psd=separate_psd,
+        ):
             return candidate
     raise FileExistsError("Could not create a unique output filename.")
 
@@ -148,27 +205,50 @@ def make_batch_output_paths(
     *,
     scale: int,
     threshold: float,
+    grayscale_mode: str = "legacy",
+    separate_psd: bool = False,
 ) -> tuple[Path, ...]:
     """Return unique output paths for a frozen GUI batch input list."""
 
     threshold_text = f"{int(round(threshold * 100)):03d}"
     reserved: set[str] = set()
     output_paths: list[Path] = []
+    extension = ".psd" if grayscale_mode == "separate" and separate_psd else ".png"
     for input_path in input_paths:
-        base = output_dir / f"{input_path.stem}_x{scale}_thr{threshold_text}.png"
+        base = output_dir / f"{input_path.stem}_x{scale}_thr{threshold_text}{extension}"
         candidate = base
         for index in range(1, 10_000):
             key = str(candidate.absolute()).casefold()
-            if not candidate.exists() and key not in reserved:
+            if (
+                _gui_output_path_available(
+                    candidate,
+                    grayscale_mode=grayscale_mode,
+                    separate_psd=separate_psd,
+                )
+                and key not in reserved
+            ):
                 reserved.add(key)
                 output_paths.append(candidate)
                 break
             candidate = output_dir / (
-                f"{input_path.stem}_x{scale}_thr{threshold_text}_{index + 1}.png"
+                f"{input_path.stem}_x{scale}_thr{threshold_text}_{index + 1}{extension}"
             )
         else:
             raise FileExistsError("Could not create a unique output filename.")
     return tuple(output_paths)
+
+
+def _gui_output_path_available(
+    path: Path,
+    *,
+    grayscale_mode: str,
+    separate_psd: bool,
+) -> bool:
+    if path.exists():
+        return False
+    if separate_psd:
+        return True
+    return grayscale_mode != "separate" or not separated_tone_path(path).exists()
 
 
 def normalize_filename_filter(text: str) -> str:
@@ -330,6 +410,8 @@ class UpscalerGui(ctk.CTk):
         self.input_path = tk.StringVar()
         self.output_dir = tk.StringVar()
         self.scale_value = tk.StringVar(value="4")
+        self.grayscale_mode_label = tk.StringVar(value=DEFAULT_GRAYSCALE_MODE_LABEL)
+        self.separate_psd_enabled = tk.BooleanVar(value=True)
         self.brightness_value = tk.IntVar(value=0)
         self.brightness_label = tk.StringVar()
         self.output_preview_enabled = tk.BooleanVar(value=True)
@@ -398,6 +480,74 @@ class UpscalerGui(ctk.CTk):
             command=self._choose_output_dir,
         )
 
+        grayscale_mode_heading = ctk.CTkLabel(
+            controls,
+            text="グレー部分の扱い",
+            font=self.label_font,
+            text_color=TEXT_PRIMARY,
+            anchor="w",
+            width=112,
+        )
+        grayscale_mode_heading.grid(
+            row=4,
+            column=0,
+            padx=(16, 10),
+            pady=(4, 8),
+            sticky="w",
+        )
+        self.grayscale_mode_heading = grayscale_mode_heading
+        grayscale_mode_box = ctk.CTkOptionMenu(
+            controls,
+            variable=self.grayscale_mode_label,
+            values=list(GRAYSCALE_MODE_LABELS),
+            command=self._on_grayscale_mode_changed,
+            width=300,
+            height=36,
+            corner_radius=6,
+            fg_color=SECONDARY,
+            button_color="#E4E7EC",
+            button_hover_color="#D0D5DD",
+            text_color=TEXT_PRIMARY,
+            dropdown_fg_color=SURFACE,
+            dropdown_hover_color=SECONDARY,
+            dropdown_text_color=TEXT_PRIMARY,
+            font=self.ui_font,
+            dropdown_font=self.ui_font,
+        )
+        grayscale_mode_box.grid(
+            row=4,
+            column=1,
+            columnspan=3,
+            padx=(0, 24),
+            pady=(4, 8),
+            sticky="w",
+        )
+        self.grayscale_mode_box = grayscale_mode_box
+        separate_psd_checkbox = ctk.CTkCheckBox(
+            controls,
+            text="PSDで出力する",
+            variable=self.separate_psd_enabled,
+            checkbox_width=20,
+            checkbox_height=20,
+            border_width=2,
+            corner_radius=4,
+            fg_color=PRIMARY,
+            hover_color=PRIMARY_HOVER,
+            border_color="#98A2B3",
+            text_color=TEXT_PRIMARY,
+            font=self.ui_font,
+        )
+        separate_psd_checkbox.grid(
+            row=4,
+            column=4,
+            columnspan=2,
+            padx=(0, 16),
+            pady=(4, 8),
+            sticky="w",
+        )
+        separate_psd_checkbox.grid_remove()
+        self.separate_psd_checkbox = separate_psd_checkbox
+
         ctk.CTkLabel(
             controls,
             text="出力倍率",
@@ -405,9 +555,9 @@ class UpscalerGui(ctk.CTk):
             text_color=TEXT_PRIMARY,
             anchor="w",
             width=88,
-        ).grid(row=4, column=0, padx=(16, 10), pady=(10, 16), sticky="w")
+        ).grid(row=5, column=0, padx=(16, 10), pady=(10, 16), sticky="w")
         scale_controls = ctk.CTkFrame(controls, fg_color="transparent")
-        scale_controls.grid(row=4, column=1, padx=(0, 24), pady=(10, 16), sticky="w")
+        scale_controls.grid(row=5, column=1, padx=(0, 24), pady=(10, 16), sticky="w")
         scale_box = ctk.CTkOptionMenu(
             scale_controls,
             variable=self.scale_value,
@@ -453,11 +603,11 @@ class UpscalerGui(ctk.CTk):
             text_color=TEXT_PRIMARY,
             anchor="e",
             width=92,
-        ).grid(row=4, column=2, padx=(0, 12), pady=(10, 16), sticky="e")
+        ).grid(row=5, column=2, padx=(0, 12), pady=(10, 16), sticky="e")
 
         slider_frame = ctk.CTkFrame(controls, fg_color="transparent")
         slider_frame.grid(
-            row=4,
+            row=5,
             column=3,
             columnspan=2,
             padx=(0, 24),
@@ -522,10 +672,12 @@ class UpscalerGui(ctk.CTk):
             text_color="#FFFFFF",
             font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
         )
-        export_button.grid(row=4, column=5, padx=(0, 16), pady=(8, 14), sticky="e")
+        export_button.grid(row=5, column=5, padx=(0, 16), pady=(8, 14), sticky="e")
         self._processing_controls.extend(
             [
                 scale_box,
+                grayscale_mode_box,
+                separate_psd_checkbox,
                 output_preview_checkbox,
                 self.brightness_decrease_button,
                 brightness_scale,
@@ -914,6 +1066,22 @@ class UpscalerGui(ctk.CTk):
     def _on_output_settings_changed(self) -> None:
         self._schedule_output_preview()
 
+    def _on_grayscale_mode_changed(self, _label: str) -> None:
+        self._update_separate_psd_visibility()
+        self._schedule_output_preview()
+
+    def _update_separate_psd_visibility(self) -> None:
+        if selected_grayscale_mode(self) == "separate":
+            self.separate_psd_checkbox.grid()
+        else:
+            self.separate_psd_checkbox.grid_remove()
+
+    def _separate_psd_requested(self, grayscale_mode: str) -> bool:
+        return selected_separate_psd(self, grayscale_mode)
+
+    def _grayscale_mode(self) -> str:
+        return selected_grayscale_mode(self)
+
     def _on_output_preview_toggled(self) -> None:
         if self.output_preview_enabled.get():
             self._schedule_output_preview(delay_ms=0)
@@ -1003,6 +1171,7 @@ class UpscalerGui(ctk.CTk):
             scale=scale,
             threshold=threshold,
             output_size=output_size,
+            grayscale_mode=selected_grayscale_mode(self),
         )
         if self._preview_worker_running:
             self._queued_preview_request = request
@@ -1032,6 +1201,7 @@ class UpscalerGui(ctk.CTk):
             config = self._load_export_config(
                 scale=request.scale,
                 threshold=request.threshold,
+                grayscale_mode=request.grayscale_mode,
             )
             with self._pipeline_lock:
                 preview_image = generate_output_preview_image(request.input_path, config)
@@ -1098,7 +1268,16 @@ class UpscalerGui(ctk.CTk):
         try:
             scale = int(self.scale_value.get())
             threshold = self._threshold_value()
-            output_path = make_output_path(input_path, output_dir, scale=scale, threshold=threshold)
+            grayscale_mode = selected_grayscale_mode(self)
+            separate_psd = selected_separate_psd(self, grayscale_mode)
+            output_path = make_output_path(
+                input_path,
+                output_dir,
+                scale=scale,
+                threshold=threshold,
+                grayscale_mode=grayscale_mode,
+                separate_psd=separate_psd,
+            )
         except Exception as exc:  # noqa: BLE001 - show GUI-friendly errors.
             messagebox.showerror("設定エラー", str(exc))
             return
@@ -1109,7 +1288,14 @@ class UpscalerGui(ctk.CTk):
         self._set_controls_enabled(False)
         thread = threading.Thread(
             target=self._run_export_worker,
-            args=(input_path, output_path, scale, threshold),
+            args=(
+                input_path,
+                output_path,
+                scale,
+                threshold,
+                grayscale_mode,
+                "psd" if separate_psd else "png",
+            ),
             daemon=True,
         )
         thread.start()
@@ -1120,6 +1306,8 @@ class UpscalerGui(ctk.CTk):
             input_paths = self._selected_batch_input_paths()
             scale = int(self.scale_value.get())
             threshold = self._threshold_value()
+            grayscale_mode = selected_grayscale_mode(self)
+            separate_psd = selected_separate_psd(self, grayscale_mode)
         except Exception as exc:  # noqa: BLE001 - show GUI-friendly errors.
             messagebox.showerror("設定エラー", str(exc))
             return
@@ -1137,6 +1325,8 @@ class UpscalerGui(ctk.CTk):
                 output_dir,
                 scale=scale,
                 threshold=threshold,
+                grayscale_mode=grayscale_mode,
+                separate_psd=separate_psd,
             )
         except Exception as exc:  # noqa: BLE001 - show GUI-friendly errors.
             messagebox.showerror("設定エラー", str(exc))
@@ -1149,7 +1339,13 @@ class UpscalerGui(ctk.CTk):
         jobs = tuple(zip(input_paths, output_paths, strict=True))
         thread = threading.Thread(
             target=self._run_batch_export_worker,
-            args=(jobs, scale, threshold),
+            args=(
+                jobs,
+                scale,
+                threshold,
+                grayscale_mode,
+                "psd" if separate_psd else "png",
+            ),
             daemon=True,
         )
         thread.start()
@@ -1160,9 +1356,16 @@ class UpscalerGui(ctk.CTk):
         output_path: Path,
         scale: int,
         threshold: float,
+        grayscale_mode: str = "legacy",
+        separate_output_format: str = "png",
     ) -> None:
         try:
-            config = self._load_export_config(scale=scale, threshold=threshold)
+            config = self._load_export_config(
+                scale=scale,
+                threshold=threshold,
+                grayscale_mode=grayscale_mode,
+                separate_output_format=separate_output_format,
+            )
             with self._pipeline_lock:
                 upscale_image(input_path, output_path, config, preset="line_only")
         except (ConfigError, OSError, ValueError, RuntimeError) as exc:
@@ -1177,9 +1380,16 @@ class UpscalerGui(ctk.CTk):
         jobs: tuple[tuple[Path, Path], ...],
         scale: int,
         threshold: float,
+        grayscale_mode: str = "legacy",
+        separate_output_format: str = "png",
     ) -> None:
         try:
-            config = self._load_export_config(scale=scale, threshold=threshold)
+            config = self._load_export_config(
+                scale=scale,
+                threshold=threshold,
+                grayscale_mode=grayscale_mode,
+                separate_output_format=separate_output_format,
+            )
         except Exception as exc:  # noqa: BLE001 - keep GUI from crashing.
             self.after(0, lambda error=exc: self._finish_batch_export(None, 0, (), error))
             return
@@ -1214,8 +1424,20 @@ class UpscalerGui(ctk.CTk):
             ),
         )
 
-    def _load_export_config(self, *, scale: int, threshold: float) -> dict[str, Any]:
-        return load_export_config(scale=scale, threshold=threshold)
+    def _load_export_config(
+        self,
+        *,
+        scale: int,
+        threshold: float,
+        grayscale_mode: str = "legacy",
+        separate_output_format: str = "png",
+    ) -> dict[str, Any]:
+        return load_export_config(
+            scale=scale,
+            threshold=threshold,
+            grayscale_mode=grayscale_mode,
+            separate_output_format=separate_output_format,
+        )
 
     def _finish_export(self, output_path: Path | None, error: BaseException | None) -> None:
         self._export_running = False
@@ -1635,6 +1857,12 @@ def main(argv: list[str] | None = None) -> int:
         metavar=("INPUT", "OUTPUT"),
         help=argparse.SUPPRESS,
     )
+    parser.add_argument(
+        "--check-separate-psd",
+        nargs=2,
+        metavar=("INPUT", "OUTPUT"),
+        help=argparse.SUPPRESS,
+    )
     args = parser.parse_args(argv)
     if args.version:
         print(f"723モノクロ線画拡大ツール　{__version__}")
@@ -1654,6 +1882,17 @@ def main(argv: list[str] | None = None) -> int:
             scale=4,
             threshold=threshold_from_brightness(0),
             overwrite=True,
+        )
+        upscale_image(Path(input_text), Path(output_text), config, preset="line_only")
+        return 0
+    if args.check_separate_psd:
+        input_text, output_text = args.check_separate_psd
+        config = load_export_config(
+            scale=2,
+            threshold=threshold_from_brightness(0),
+            overwrite=True,
+            grayscale_mode="separate",
+            separate_output_format="psd",
         )
         upscale_image(Path(input_text), Path(output_text), config, preset="line_only")
         return 0

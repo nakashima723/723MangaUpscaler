@@ -29,12 +29,14 @@ input                       入力画像
 --upscaler                  none / lanczos / realcugan / waifu2x / realesrgan
 --upscaler-fallback         none / lanczos
 --tone-usage                auto / always / never
+--grayscale-mode            legacy / line_only / separate / composite
 --invert                    入力の白黒を反転して扱う
 --sdf-distance-source       binary_mask / soft_mask_hr
 --soft-sdf-threshold        soft_mask_hr用のsupport閾値
 --line-soft-coverage-mode   darkness / line_probability / max_probability
 --line-soft-coverage-gamma  line_soft coverageへ適用するgamma
 --width-bias-source-px      元解像度基準の線幅補正。既定は0
+--separate-output-format    separate時の出力形式。png / psd
 --aa-radius-hr-px           高解像度ピクセル基準のAA半径
 --enable-directional-smoothing
 --disable-directional-smoothing
@@ -46,6 +48,12 @@ input                       入力画像
 ```
 
 MVPでは `--scale 2`, `--scale 3`, `--scale 4`, `--scale 6`, `--scale 8` を扱う。線画MVPの既定は `--upscaler none` とする。`gray_tone` / `conservative` では外部upscalerが未設定の場合、設定に応じて `lanczos` fallbackを使える。`--tone-usage auto` では純線画判定時に `tone_hr` を最終合成へ使わない。
+
+`--grayscale-mode legacy` は従来出力を保つ。`line_only` は局所階調への相対暗化率から線だけを出力する。`separate` の `--separate-output-format png` は同じ線PNGに加えて `*_tone.png` を黒RGB・`alpha = 1 - tone_luminance` のRGBA PNGとして出力する。`psd` はGrayscale 8/16-bit PSDへ `Line Art / Grayscale Tone / Background` の3レイヤーを保存し、PNGは併記しない。`composite` は拡大済みtoneへ同じ線を合成する。カラー入力は全モードで先にグレースケール化する。CLI・設定ファイルの既定は後方互換の `png`、GUIチェックボックスの既定はONのためGUI出力は `psd` となる。
+
+非legacyの既定 `line_coverage_mode: quality_hybrid` は、局所階調が0.90以下なら相対暗化coverage、0.98以上なら従来の `line_soft` を使い、その間をsmoothstepで連続補間する。相対側のgainは固定 `2.425` で、現在の `soft_sdf_threshold` から動的には算出しない。このためGUIの明るさ設定とCLIのSDF閾値は引き続き有効である。比較用に `relative_contrast` と `detection_probability` もYAMLから指定できる。
+
+グレー分離モード専用の追加線幅補正は持たない。線幅biasをCLIや設定ファイルで指定する場合は、全モード共通の `sdf.width_bias_source_px` だけを使用する。
 
 ### 2.2 `batch`
 
@@ -184,6 +192,22 @@ pipeline:
   line_renderer: sdf
   tone_mode: white_canvas
   debug: true
+
+grayscale_processing:
+  mode: legacy
+  separate_output_format: png
+  closing_radius: 6
+  weak_relative_contrast: 0.035
+  strong_relative_contrast: 0.12
+  line_coverage_mode: quality_hybrid
+  relative_coverage_gain: 2.425
+  legacy_blend_start: 0.90
+  legacy_blend_end: 0.98
+  weak_absolute_contrast: 0.00392156862745098
+  strong_absolute_contrast: 0.011764705882352941
+  tone_floor: 0.00392156862745098
+  tone_dilate_radius: 1
+  tone_feather_sigma: 0.5
 
 mask:
   black_threshold: 0.72

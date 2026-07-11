@@ -32,6 +32,9 @@ class BatchItemResult:
     tone_used_in_final: bool | None
     upscaler_engine: str | None
     upscaler_used_fallback: bool | None
+    tone_output_path: Path | None = None
+    grayscale_mode: str | None = None
+    separate_output_format: str | None = None
 
 
 @dataclass(frozen=True)
@@ -96,6 +99,15 @@ def run_batch(
             relative,
             target_dir,
             scale=int(config["pipeline"]["scale"]),
+            extension=(
+                "psd"
+                if config.get("grayscale_processing", {}).get("mode") == "separate"
+                and config.get("grayscale_processing", {}).get(
+                    "separate_output_format"
+                )
+                == "psd"
+                else "png"
+            ),
         )
         output_key = str(output_path).casefold()
         item_debug_dir = batch_debug_dir(relative, debug_base) if debug_base is not None else None
@@ -198,13 +210,24 @@ def discover_input_images(
     return tuple(sorted(paths, key=lambda path: path.relative_to(source_dir).as_posix().lower()))
 
 
-def batch_output_path(relative_input_path: Path, output_dir: str | Path, *, scale: int) -> Path:
-    """Return the output PNG path for one relative input path."""
+def batch_output_path(
+    relative_input_path: Path,
+    output_dir: str | Path,
+    *,
+    scale: int,
+    extension: str = "png",
+) -> Path:
+    """Return one output path for a relative input path."""
 
     relative_path = Path(relative_input_path)
     stem = relative_path.stem
     relative_parent = relative_path.parent
-    return Path(output_dir) / relative_parent / f"{stem}_x{scale}.png"
+    normalized_extension = extension.lower().lstrip(".")
+    if normalized_extension not in {"png", "psd"}:
+        raise ValueError("Batch output extension must be png or psd.")
+    return Path(output_dir) / relative_parent / (
+        f"{stem}_x{scale}.{normalized_extension}"
+    )
 
 
 def batch_debug_dir(relative_input_path: Path, debug_base_dir: str | Path) -> Path:
@@ -237,6 +260,9 @@ def batch_item_from_pipeline(
         tone_used_in_final=result.tone_used_in_final,
         upscaler_engine=result.upscaler_result.engine,
         upscaler_used_fallback=result.upscaler_result.used_fallback,
+        tone_output_path=result.tone_output_path,
+        grayscale_mode=result.grayscale_mode,
+        separate_output_format=result.separate_output_format,
     )
 
 
@@ -295,6 +321,9 @@ def save_batch_summary_csv(result: BatchResult) -> Path:
             "tone_used_in_final",
             "upscaler_engine",
             "upscaler_used_fallback",
+            "tone_output_path",
+            "grayscale_mode",
+            "separate_output_format",
         ]
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
@@ -324,4 +353,9 @@ def batch_item_to_dict(item: BatchItemResult) -> dict[str, Any]:
         "tone_used_in_final": item.tone_used_in_final,
         "upscaler_engine": item.upscaler_engine or "",
         "upscaler_used_fallback": item.upscaler_used_fallback,
+        "tone_output_path": (
+            str(item.tone_output_path) if item.tone_output_path is not None else ""
+        ),
+        "grayscale_mode": item.grayscale_mode or "",
+        "separate_output_format": item.separate_output_format or "",
     }

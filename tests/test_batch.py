@@ -38,9 +38,16 @@ def test_discover_input_images_is_recursive_and_sorted(tmp_path) -> None:
 
 def test_batch_path_helpers_preserve_relative_dirs() -> None:
     relative = batch_output_path("nested/input.jpg", "out", scale=4)
+    relative_psd = batch_output_path(
+        "nested/input.jpg",
+        "out",
+        scale=4,
+        extension="psd",
+    )
     debug = batch_debug_dir("nested/input.jpg", "debug")
 
     assert relative.as_posix() == "out/nested/input_x4.png"
+    assert relative_psd.as_posix() == "out/nested/input_x4.psd"
     assert debug.as_posix() == "debug/nested/input"
 
 
@@ -130,3 +137,36 @@ def test_batch_continues_after_one_file_fails(tmp_path) -> None:
     assert not (output_dir / "ok_x2.mlus-run.json").exists()
     broken = next(item for item in summary["items"] if item["status"] == "failed")
     assert "Could not read image" in broken["error"]
+
+
+def test_batch_separate_mode_can_write_psd_outputs(tmp_path) -> None:
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    image = np.full((12, 16), 220, dtype=np.uint8)
+    image[5:7, 2:14] = 40
+    Image.fromarray(image).save(input_dir / "gray.png")
+    output_dir = tmp_path / "output"
+
+    exit_code = main(
+        [
+            "batch",
+            str(input_dir),
+            str(output_dir),
+            "--scale",
+            "2",
+            "--grayscale-mode",
+            "separate",
+            "--separate-output-format",
+            "psd",
+        ]
+    )
+
+    assert exit_code == 0
+    psd_path = output_dir / "gray_x2.psd"
+    assert psd_path.exists()
+    assert psd_path.read_bytes()[:4] == b"8BPS"
+    assert not (output_dir / "gray_x2.png").exists()
+    assert not (output_dir / "gray_x2_tone.png").exists()
+    summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary["items"][0]["output_path"].endswith("gray_x2.psd")
+    assert summary["items"][0]["separate_output_format"] == "psd"
