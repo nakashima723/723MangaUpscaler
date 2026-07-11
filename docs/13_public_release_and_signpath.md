@@ -4,7 +4,7 @@
 
 公開用ファイル、ハッシュ固定依存、GitHub Actions、SignPath Artifact
 Configuration、privacy/security/contribution文書までは準備済みである。
-[GitHub公開リポジトリ](https://github.com/nakashima723/723MangaUpscaler)は作成済みである。
+[GitHub公開リポジトリ](https://github.com/nakashima723/723MangaUpscaler)の`main`へ初回push済みである。
 初回unsigned release、SignPath Foundation審査、GitHub App接続、信頼済み署名は
 機能範囲を確定するまで実施しない。release workflowも明示的に無効化している。
 

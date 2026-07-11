@@ -2135,3 +2135,18 @@ GUIに載せる場合も、既定値は0で完全無効にし、品質確認後�
 
 - コード署名フェーズ31についての未達成ロードマップは残り4件。
 - 次の作業予定は、監査済み公開対象を`nakashima723/723MangaUpscaler`の`main`へ初回pushすることです。
+
+## 2026-07-11 GitHub初回公開完了
+
+### 公開結果
+
+- 102ファイル、20,620行の初回commit `361ab9d`を作成し、公開repository `nakashima723/723MangaUpscaler`の`main`へpushした。
+- GitHub repositoryはpublicで、既定branchは`main`になった。
+- private vulnerability reporting、secret scanning、push protectionを有効にした。Issuesを有効、Wikiを無効にし、`manga`、`image-upscaling`、`line-art`、`windows`、`python`のtopicsを設定した。
+- CI、CodeQL、Dependabotの初回GitHub Actions runが開始された。SignPath release workflowは`SIGNPATH_SUBMISSION_ENABLED`未設定のため実行されない。
+- SignPath Foundationへの申請、GitHub App接続、SignPath organization/project/policy作成、API tokenやvariable設定、署名要求は行っていない。
+
+### ロードマップ状態
+
+- コード署名フェーズ31についての未達成ロードマップは残り3件。
+- 次の作業予定は、グレースケール対応など次回公開版の機能範囲を確定し、license再監査後にGitHub-hosted buildから同形式のunsigned pre-releaseを公開することです。

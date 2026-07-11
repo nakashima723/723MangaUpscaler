@@ -926,7 +926,7 @@ GUIの配布・更新対象を単体EXEだけに統一し、フォルダ版の�
 - [x] 公開用合成素材、hash固定依存、GitHub CI、SignPath release workflow、公開policy文書を用意する
 - [x] Microsoft runtimeの取得元を公式Visual Studio Redistへ固定し、不要なpywin32を配布物から除外する
 - [x] ローカルGit repositoryを`main` branchで初期化し、公開候補のsecret scanを行う
-- [ ] GitHub owner、repository名、Authors、Reviewers、Approversを確定してpublic repositoryへ初回pushする
+- [x] GitHub owner、repository名、Authors、Reviewers、Approversを確定してpublic repositoryへ初回pushする
 - [ ] GitHub-hosted buildから同じonefile形式のunsigned 1.00 pre-releaseを公開する
 - [ ] SignPath Foundation審査、GitHub App、Project、Artifact Configuration、Signing Policy連携を完了する
 - [ ] protected `main`のrelease workflowで最終EXEへ信頼済み署名を付け、検証済みSHA-256とともに公開する
