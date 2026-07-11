@@ -82,6 +82,8 @@ jobs:
 
       - name: Verify unsigned release candidate
         shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src
         run: |
           $exe = (Resolve-Path "dist/723MangaUpscaler.exe").Path
           $distFiles = @(Get-ChildItem -LiteralPath "dist" -File)
