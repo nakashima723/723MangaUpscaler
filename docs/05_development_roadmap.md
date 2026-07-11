@@ -1151,7 +1151,7 @@ GUIのseparate選択時だけ「PSDで出力する」を表示し、既定ONと�
 
 ### 現状
 
-PSD recordとchannel dataをbottom-to-topへ統一し、preview時だけ非破壊コピーした設定をcompositeへ切り替えた。PNG分離出力後はtone sidecarのalphaから階調を復元して主線と乗算する。依存追加と配布境界変更はない。
+PSD recordとchannel dataをbottom-to-topへ統一し、preview時だけ非破壊コピーした設定をcompositeへ切り替えた。PNG分離出力後はtone sidecarのalphaから階調を復元して主線と乗算する。依存追加と配布境界変更はない。修正版はGitHub-hosted buildから `v1.00-unsigned.2` として公開し、公開EXEのchecksumと未署名状態を再確認した。
 
 ## Codex向け実装単位
 

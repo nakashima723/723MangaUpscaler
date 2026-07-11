@@ -2437,9 +2437,10 @@ GUIに載せる場合も、既定値は0で完全無効にし、品質確認後�
 - psd-toolsによるfile record順は `Background / Grayscale Tone / Line Art` となり、画面上では逆順の `Line Art / Grayscale Tone / Background` になる。EXE生成PSDのレイヤー強制再合成と埋込merged imageは全画素一致した。
 - `dist/723MangaUpscaler.exe`を再ビルドし、`--version`、`--check-config`、`--check-ui`、`--check-upscale`、`--check-separate-psd`がすべて終了コード0となった。
 - EXEは33,937,507 byte、SHA-256 `79641845D8E2A8E4D98E5ED8207F71691AD27F7F915B89036B6FA58AF0F8E29E`。ProductVersionは1.00、FileVersionは1.00.0.0、署名状態は`NotSigned`である。
+- protected `main`のCI、dependency review、CodeQLを通過し、修正版を[`v1.00-unsigned.2`](https://github.com/nakashima723/723MangaUpscaler/releases/tag/v1.00-unsigned.2)として公開した。Releaseから再取得したEXEは35,554,075 byte、SHA-256 `A42126AE0B697158615F5165D0F0C3E3486A45BD4BC6FDE7EF4C8B8F75C22BFA`でchecksum fileと一致し、署名状態は`NotSigned`、ProductVersionは1.00、FileVersionは1.00.0.0だった。
 
 ### ロードマップ状態
 
 - PSDレイヤー順と分離プレビュー修正フェーズ38についての未達成ロードマップは残り0件。
 - コード署名フェーズ31についての未達成ロードマップは残り2件。
-- 次の作業予定は、修正版をprotected `main`へ反映し、`v1.00-unsigned.2`を公開してからSignPath Foundationへ申請することです。
+- 次の作業予定は、`v1.00-unsigned.2`をDownload URLとしてSignPath Foundationへ申請することです。
