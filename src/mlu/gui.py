@@ -542,8 +542,17 @@ class UpscalerGui(ctk.CTk):
             sticky="w",
         )
         self.grayscale_mode_heading = grayscale_mode_heading
+        grayscale_controls = ctk.CTkFrame(controls, fg_color="transparent")
+        grayscale_controls.grid(
+            row=4,
+            column=1,
+            columnspan=5,
+            padx=(0, 16),
+            pady=(4, 8),
+            sticky="w",
+        )
         grayscale_mode_box = ctk.CTkOptionMenu(
-            controls,
+            grayscale_controls,
             variable=self.grayscale_mode_label,
             values=list(GRAYSCALE_MODE_LABELS),
             command=self._on_grayscale_mode_changed,
@@ -561,16 +570,14 @@ class UpscalerGui(ctk.CTk):
             dropdown_font=self.ui_font,
         )
         grayscale_mode_box.grid(
-            row=4,
-            column=1,
-            columnspan=3,
-            padx=(0, 24),
-            pady=(4, 8),
+            row=0,
+            column=0,
+            padx=(0, 12),
             sticky="w",
         )
         self.grayscale_mode_box = grayscale_mode_box
         separate_psd_checkbox = ctk.CTkCheckBox(
-            controls,
+            grayscale_controls,
             text="PSDで出力する",
             variable=self.separate_psd_enabled,
             checkbox_width=20,
@@ -584,11 +591,9 @@ class UpscalerGui(ctk.CTk):
             font=self.ui_font,
         )
         separate_psd_checkbox.grid(
-            row=4,
-            column=4,
-            columnspan=2,
-            padx=(0, 16),
-            pady=(4, 8),
+            row=0,
+            column=1,
+            padx=0,
             sticky="w",
         )
         separate_psd_checkbox.grid_remove()

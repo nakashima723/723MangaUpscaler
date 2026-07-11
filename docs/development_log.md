@@ -2444,3 +2444,27 @@ GUIに載せる場合も、既定値は0で完全無効にし、品質確認後�
 - PSDレイヤー順と分離プレビュー修正フェーズ38についての未達成ロードマップは残り0件。
 - コード署名フェーズ31についての未達成ロードマップは残り2件。
 - 次の作業予定は、`v1.00-unsigned.2`をDownload URLとしてSignPath Foundationへ申請することです。
+
+## 2026-07-11 フェーズ40：PSD出力チェックボックスの配置調整
+
+### 改修内容
+
+- 「PSDで出力する」を、親frameの離れたgrid columnから「グレー部分の扱い」プルダウンと共有する透明frameへ移した。
+- プルダウンをframe内column 0、PSDチェックを同じ行のcolumn 1に置いたため、画面幅を広げてもプルダウンの右側に隣接して表示される。
+- `separate` 時だけ表示する既存の`grid_remove()`／`grid()`、PSD選択値の保持、処理中のcontrol無効化はそのまま維持した。
+
+### 今後同じミスをしないための有益な失敗
+
+- 見かけ上同じrowの隣列でも、親gridの可変幅columnをまたぐとwidget間に大きな空白ができる。常に隣接させるUI要素は、共通の固定幅子frame内で横並びにする。
+
+### 検証
+
+- GUI回帰テストで、PSDチェックがプルダウンと同じ親frame、同じrow、直後のcolumn 1に置かれることと、実座標がプルダウン右端以降になることを確認した。
+- Ruff、全246テスト、`pip check`、ライセンス収集、`python -m mlu.gui --check-ui`が成功した。
+- 起動中の既定EXEはWindowsにより置換ロックされていたため、`723MangaUpscaler_ui_layout_staged.exe` を別名で生成した。`--version`、`--check-config`、`--check-ui`、`--check-upscale`、`--check-separate-psd`はすべて終了コード0、SHA-256は`FDE2D946A4EB7C326094FF34F35977CEF337D091A1054607C3B553C20E5973AA`、署名状態は`NotSigned`である。
+
+### ロードマップ状態
+
+- PSD出力チェックボックスの配置調整についての未達成ロードマップは残り0件。
+- コード署名フェーズ31についての未達成ロードマップは残り2件。
+- 次の作業予定は、今回のUI修正版をGitHubへ反映し、SignPath申請対象のunsigned pre-releaseを更新することです。
