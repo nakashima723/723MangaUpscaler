@@ -49,6 +49,9 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             throw "A GitHub release already exists for $env:RELEASE_TAG."
           }
+          # `gh release view` returns 1 when the expected release is absent.
+          # Do not let that probe become this successful step's final exit code.
+          $global:LASTEXITCODE = 0
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6

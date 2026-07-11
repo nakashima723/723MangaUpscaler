@@ -2399,6 +2399,7 @@ GUIに載せる場合も、既定値は0で完全無効にし、品質確認後�
 - 出力形式を追加したとき、writer側だけを分岐して拡張子を検証しないと、PNG bytesの`.psd`のような見かけ上成功する破損成果物を作れる。処理開始前にmode、format、suffixの組を検証し、誤った組のnegative testを持つ。
 - Windows PowerShell 5.1の`PSModulePath`へPowerShell 7用moduleが先に入る環境では、`Get-AuthenticodeSignature`の自動importが失敗する。ローカル診断ではWindows PowerShell標準module pathを明示し、CIは隔離された`windows-2022` runnerで再検証する。
 - PyInstallerのresource更新は一時的な`EndUpdateResourceW`エラーを返す場合がある。内蔵retryが成功したか最終終了コードと完成EXEのmetadataを確認し、警告1行だけで失敗と判断しない。
+- PowerShellでは、存在確認のため意図的に失敗させた外部コマンドの`$LASTEXITCODE`がステップ末尾まで残る。`gh release view`でRelease不存在を正常系として扱う場合は、分岐後に終了コードを0へ戻し、GitHub Actionsのshell wrapperに失敗と解釈させない。
 
 ### 検証
 
