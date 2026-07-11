@@ -1,0 +1,124 @@
+version: 1
+
+io:
+  output_bit_depth: 8
+  preserve_alpha: false
+  overwrite: false
+
+pipeline:
+  scale: 4
+  line_renderer: sdf
+  tone_mode: white_canvas
+  debug: true
+
+mask:
+  black_threshold: 0.72
+  soft_coverage:
+    # Use source darkness as line coverage. Detection probability remains only for support.
+    mode: darkness
+    gamma: 1.0
+  adaptive:
+    enabled: false
+    method: sauvola
+    window_size: 31
+    k: 0.18
+  hysteresis:
+    enabled: true
+    strong: 0.50
+    weak: 0.25
+  cleanup:
+    min_component_area: 6
+    close_radius: 0
+    fill_holes_area: 12
+
+sdf:
+  interpolation: lanczos
+  distance_source: soft_mask_hr
+  soft_sdf_threshold: 0.22
+  width_bias_source_px: 0.0
+  aa_radius_hr_px: 0.75
+  soft_alpha_mode: none
+  soft_gain: 0.0
+
+line_stabilizer:
+  enabled: false
+  strength: 0.55
+  min_coverage: 0.35
+  min_length_source_px: 36.0
+  max_rms_error_source_px: 0.55
+  min_density: 0.35
+  max_gap_source_px: 4.0
+  angle_step_degrees: 5.0
+  rho_tolerance_source_px: 0.75
+  max_segments: 96
+  max_candidates_per_angle: 24
+  min_width_source_px: 0.85
+  max_width_source_px: 2.25
+  width_scale: 1.0
+  band_margin_hr_px: 1.5
+  support_dilate_hr_px: 2
+
+directional_smoothing:
+  enabled: false
+  strength: 0.55
+  radius_hr_px: 2
+  min_angle_from_axis_degrees: 20.0
+  full_strength_angle_from_axis_degrees: 34.0
+  orientation_sigma_hr_px: 1.0
+  tensor_sigma_hr_px: 2.0
+  min_orientation_confidence: 0.12
+  min_gradient_energy: 0.00001
+  min_alpha: 0.04
+  support_dilate_hr_px: 1
+  max_delta: 0.35
+
+potrace:
+  turdsize: 2
+  alphamax: 1.0
+  opttolerance: 0.2
+  opticurve: true
+  turnpolicy: minority
+  rasterizer: cairosvg
+
+tone_source:
+  mode: white_canvas
+  dilate_radius: 1.2
+  lift_strength: 0.85
+  background_blur_radius: 9
+  protect_midtones: true
+
+upscaler:
+  engine: none
+  scale: 4
+  fallback: lanczos
+  realcugan:
+    noise: -1
+    model: auto
+    tile_size: 256
+    tta: false
+  waifu2x:
+    model: models-cunet
+    noise: -1
+    tile_size: 256
+  realesrgan:
+    model: realesrgan-x4plus-anime
+    tile_size: 256
+
+composite:
+  line_darkness: 1.0
+  edge_alpha_gamma: 1.2
+  tone_usage: auto
+  clamp: true
+
+debug:
+  save_layers: true
+  save_run_json: false
+  contact_sheet: false
+
+external_tools:
+  realcugan: null
+  waifu2x: null
+  realesrgan: null
+  potrace: null
+  cairosvg: null
+  inkscape: null

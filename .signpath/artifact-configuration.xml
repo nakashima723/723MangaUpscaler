@@ -1,0 +1,18 @@
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="productVersion" required="true" />
+    <parameter name="fileVersion" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file path="723MangaUpscaler.exe"
+      product-name="723 Manga Upscaler"
+      product-version="${productVersion}"
+      file-version="${fileVersion}"
+      company-name="nakashima723 and contributors"
+      copyright="Copyright (c) 2026 nakashima723 and contributors"
+      original-filename="723MangaUpscaler.exe">
+      <authenticode-sign hash-algorithm="sha256"
+        description="723 Manga Upscaler" />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

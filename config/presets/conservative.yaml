@@ -1,0 +1,44 @@
+version: 1
+
+pipeline:
+  scale: 4
+  line_renderer: sdf
+  tone_mode: lift_lines
+
+mask:
+  black_threshold: 0.58
+  adaptive:
+    enabled: false
+  hysteresis:
+    enabled: true
+    strong: 0.55
+    weak: 0.32
+  cleanup:
+    min_component_area: 10
+    close_radius: 0
+    fill_holes_area: 8
+
+sdf:
+  width_bias_source_px: -0.10
+  aa_radius_hr_px: 0.85
+  soft_alpha_mode: none
+  soft_gain: 0.0
+
+tone_source:
+  mode: lift_lines
+  dilate_radius: 1.0
+  lift_strength: 0.75
+  background_blur_radius: 7
+  protect_midtones: true
+
+upscaler:
+  engine: waifu2x
+  fallback: lanczos
+  waifu2x:
+    noise: -1
+    tile_size: 256
+
+composite:
+  line_darkness: 0.96
+  edge_alpha_gamma: 1.15
+  tone_usage: auto

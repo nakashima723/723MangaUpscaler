@@ -1,0 +1,55 @@
+version: 1
+
+base:
+  mask:
+    soft_coverage:
+      mode: darkness
+      gamma: 1.0
+  sdf:
+    distance_source: soft_mask_hr
+    soft_sdf_threshold: 0.26
+    width_bias_source_px: 0.0
+    soft_alpha_mode: none
+    soft_gain: 0.0
+  directional_smoothing:
+    enabled: false
+  line_stabilizer:
+    enabled: false
+
+variants:
+  - name: support_fattening_0
+    overrides:
+      mask:
+        hysteresis:
+          enabled: true
+          strong: 0.48
+          weak: 0.28
+        cleanup:
+          fill_holes_area: 0
+  - name: support_fattening_1of3
+    overrides:
+      mask:
+        hysteresis:
+          enabled: true
+          strong: 0.48
+          weak: 0.2533333333
+        cleanup:
+          fill_holes_area: 3
+  - name: support_fattening_2of3
+    overrides:
+      mask:
+        hysteresis:
+          enabled: true
+          strong: 0.48
+          weak: 0.2266666667
+        cleanup:
+          fill_holes_area: 5
+  - name: support_fattening_current
+    overrides:
+      mask:
+        hysteresis:
+          enabled: true
+          strong: 0.48
+          weak: 0.20
+        cleanup:
+          fill_holes_area: 8

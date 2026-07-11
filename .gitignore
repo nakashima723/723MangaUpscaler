@@ -1,0 +1,35 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.spec
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+.coverage
+coverage.xml
+htmlcov/
+build/
+dist/
+tmp/
+
+# Local environment files and credentials.
+.env
+.env.*
+!.env.example
+
+# Local evaluation material. These files may include user-provided images or
+# third-party review archives whose redistribution rights are not established.
+images/input/
+docs/assets/
+reviews/
+
+# Codex/agent workspace state is local-only.
+.agents/
+.codex/
+
+# Never commit code-signing private keys or certificate bundles.
+*.pfx
+*.p12
+*.pem
+*.key

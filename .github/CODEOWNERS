@@ -1,0 +1,8 @@
+* @nakashima723
+
+/.github/workflows/ @nakashima723
+/.signpath/ @nakashima723
+/requirements-release.txt @nakashima723
+/tools/build_gui_exe.ps1 @nakashima723
+/tools/sign_gui_exe.ps1 @nakashima723
+/tools/verify_gui_signature.ps1 @nakashima723

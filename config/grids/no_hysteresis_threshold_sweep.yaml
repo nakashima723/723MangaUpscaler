@@ -1,0 +1,34 @@
+version: 1
+
+base:
+  mask:
+    soft_coverage:
+      mode: darkness
+      gamma: 1.0
+    hysteresis:
+      enabled: false
+    cleanup:
+      fill_holes_area: 0
+  sdf:
+    distance_source: soft_mask_hr
+    width_bias_source_px: 0.0
+    soft_alpha_mode: none
+    soft_gain: 0.0
+  directional_smoothing:
+    enabled: false
+  line_stabilizer:
+    enabled: false
+
+variants:
+  - name: no_hysteresis_thr026
+    overrides:
+      sdf:
+        soft_sdf_threshold: 0.26
+  - name: no_hysteresis_thr030
+    overrides:
+      sdf:
+        soft_sdf_threshold: 0.30
+  - name: no_hysteresis_thr034
+    overrides:
+      sdf:
+        soft_sdf_threshold: 0.34

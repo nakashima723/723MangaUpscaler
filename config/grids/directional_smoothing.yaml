@@ -1,0 +1,31 @@
+version: 1
+
+variants:
+  - name: smoothing_off
+    overrides:
+      directional_smoothing:
+        enabled: false
+  - name: smoothing_default
+    overrides:
+      directional_smoothing:
+        enabled: true
+        strength: 0.55
+        radius_hr_px: 2
+        min_angle_from_axis_degrees: 20.0
+        full_strength_angle_from_axis_degrees: 34.0
+  - name: smoothing_strong
+    overrides:
+      directional_smoothing:
+        enabled: true
+        strength: 0.75
+        radius_hr_px: 3
+        min_angle_from_axis_degrees: 20.0
+        full_strength_angle_from_axis_degrees: 34.0
+  - name: smoothing_diagonal_only
+    overrides:
+      directional_smoothing:
+        enabled: true
+        strength: 0.70
+        radius_hr_px: 2
+        min_angle_from_axis_degrees: 24.0
+        full_strength_angle_from_axis_degrees: 38.0

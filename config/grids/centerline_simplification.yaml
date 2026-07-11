@@ -1,0 +1,48 @@
+version: 1
+
+base:
+  mask:
+    hysteresis:
+      enabled: false
+    cleanup:
+      fill_holes_area: 0
+  sdf:
+    soft_sdf_threshold: 0.34
+  line_stabilizer:
+    enabled: false
+  directional_smoothing:
+    enabled: false
+
+variants:
+  - name: long_stroke_none
+    overrides:
+      centerline_simplification:
+        enabled: false
+        filter_sigma_source_px: 0.0
+        max_filter_displacement_source_px: 0.50
+        strength: 1.0
+        geometry_strength: 0.0
+  - name: long_stroke_low
+    overrides:
+      centerline_simplification:
+        enabled: true
+        filter_sigma_source_px: 0.75
+        max_filter_displacement_source_px: 0.50
+        strength: 1.0
+        geometry_strength: 0.50
+  - name: long_stroke_medium
+    overrides:
+      centerline_simplification:
+        enabled: true
+        filter_sigma_source_px: 1.00
+        max_filter_displacement_source_px: 0.75
+        strength: 1.0
+        geometry_strength: 0.75
+  - name: long_stroke_high
+    overrides:
+      centerline_simplification:
+        enabled: true
+        filter_sigma_source_px: 1.25
+        max_filter_displacement_source_px: 1.00
+        strength: 1.0
+        geometry_strength: 1.00

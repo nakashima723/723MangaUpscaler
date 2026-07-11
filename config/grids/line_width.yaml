@@ -1,0 +1,7 @@
+version: 1
+
+parameters:
+  sdf.width_bias_source_px:
+    - -0.25
+    - -0.10
+    - 0.0

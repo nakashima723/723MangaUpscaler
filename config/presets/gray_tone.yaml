@@ -1,0 +1,47 @@
+version: 1
+
+pipeline:
+  scale: 4
+  line_renderer: sdf
+  tone_mode: lift_lines
+
+mask:
+  black_threshold: 0.66
+  adaptive:
+    enabled: true
+    method: sauvola
+    window_size: 31
+    k: 0.18
+  hysteresis:
+    enabled: true
+    strong: 0.50
+    weak: 0.25
+  cleanup:
+    min_component_area: 6
+    close_radius: 0
+    fill_holes_area: 12
+
+sdf:
+  width_bias_source_px: -0.25
+  aa_radius_hr_px: 1.0
+  soft_alpha_mode: max
+  soft_gain: 0.35
+
+tone_source:
+  mode: lift_lines
+  dilate_radius: 1.2
+  lift_strength: 0.85
+  background_blur_radius: 9
+  protect_midtones: true
+
+upscaler:
+  engine: realcugan
+  fallback: lanczos
+  realcugan:
+    noise: -1
+    tile_size: 256
+
+composite:
+  line_darkness: 1.0
+  edge_alpha_gamma: 1.0
+  tone_usage: auto

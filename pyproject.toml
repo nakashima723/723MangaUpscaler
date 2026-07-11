@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "723-manga-upscaler"
+version = "1.00"
+description = "Local Windows upscaler for manga images, optimized for clean monochrome line art."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "nakashima723 and contributors" },
+]
+dependencies = [
+  "customtkinter>=5.2,<6",
+  "diplib==3.6.1",
+  "numpy>=1.24",
+  "pillow>=10",
+  "pyyaml>=6",
+  "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pyinstaller>=6",
+  "pytest>=8",
+  "ruff>=0.6",
+]
+
+[project.scripts]
+mlu = "mlu.cli:main"
+mlu-gui = "mlu.gui:main"
+
+[project.urls]
+Homepage = "https://github.com/nakashima723/723MangaUpscaler"
+Repository = "https://github.com/nakashima723/723MangaUpscaler"
+Issues = "https://github.com/nakashima723/723MangaUpscaler/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+exclude = ["reviews"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

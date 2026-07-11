@@ -1,0 +1,81 @@
+version: 1
+
+variants:
+  - name: legacy_maxprob_thr030_blend
+    overrides:
+      mask:
+        soft_coverage:
+          mode: max_probability
+          gamma: 1.0
+      sdf:
+        distance_source: soft_mask_hr
+        soft_sdf_threshold: 0.30
+        soft_alpha_mode: blend
+        soft_gain: 0.85
+      directional_smoothing:
+        enabled: false
+  - name: darkness_thr018_sdf_only
+    overrides:
+      mask:
+        soft_coverage:
+          mode: darkness
+          gamma: 1.0
+      sdf:
+        distance_source: soft_mask_hr
+        soft_sdf_threshold: 0.18
+        soft_alpha_mode: none
+        soft_gain: 0.0
+      directional_smoothing:
+        enabled: false
+  - name: darkness_thr022_sdf_only
+    overrides:
+      mask:
+        soft_coverage:
+          mode: darkness
+          gamma: 1.0
+      sdf:
+        distance_source: soft_mask_hr
+        soft_sdf_threshold: 0.22
+        soft_alpha_mode: none
+        soft_gain: 0.0
+      directional_smoothing:
+        enabled: false
+  - name: darkness_thr026_sdf_only
+    overrides:
+      mask:
+        soft_coverage:
+          mode: darkness
+          gamma: 1.0
+      sdf:
+        distance_source: soft_mask_hr
+        soft_sdf_threshold: 0.26
+        soft_alpha_mode: none
+        soft_gain: 0.0
+      directional_smoothing:
+        enabled: false
+  - name: darkness_thr022_soft_max035
+    overrides:
+      mask:
+        soft_coverage:
+          mode: darkness
+          gamma: 1.0
+      sdf:
+        distance_source: soft_mask_hr
+        soft_sdf_threshold: 0.22
+        soft_alpha_mode: max
+        soft_gain: 0.35
+      directional_smoothing:
+        enabled: false
+  - name: probability_only_diagnostic
+    overrides:
+      mask:
+        soft_coverage:
+          mode: line_probability
+          gamma: 1.0
+      sdf:
+        distance_source: soft_mask_hr
+        soft_sdf_threshold: 0.30
+        soft_alpha_mode: none
+        soft_gain: 0.0
+      directional_smoothing:
+        enabled: false

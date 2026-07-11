@@ -1,0 +1,26 @@
+id,phase,title,primary_files,acceptance
+T000,0,リポジトリ初期化,"pyproject.toml src/mlu tests",pytestとruffが通りmlu --helpが表示される
+T010,1,設定読み込みとマージ,"src/mlu/config.py tests/test_config.py",デフォルト/プリセット/config/CLIが深くマージされる
+T020,1,画像I/O,"src/mlu/io.py tests/test_io.py",PNGを読み込みfloat32に正規化し8bit PNG保存ができる
+T030,1,グレースケール正規化,"src/mlu/grayscale.py tests/test_grayscale.py",RGB/RGBA/Grayを0黒1白で扱いRGBAは白背景合成できる
+T040,2,固定閾値マスク,"src/mlu/mask_extract.py tests/test_mask_extract.py",線画fixtureからline_maskを生成できる
+T050,2,Sauvola閾値（MVP後）,"src/mlu/mask_extract.py",背景ムラのあるfixtureで線が抽出できる
+T060,2,ヒステリシス接続,"src/mlu/mask_extract.py",薄線が強線に接続していれば残る
+T070,2,cleanup処理,"src/mlu/mask_extract.py",小ノイズ除去と穴埋めが動く
+T080,3,SDF生成,"src/mlu/sdf_render.py tests/test_sdf_render.py",inside正outside負のSDFが作れる
+T090,3,SDF高解像度化,"src/mlu/sdf_render.py",resize後のscale補正が入りline_alpha_hrを出せる
+T100,3,線幅・AA調整,"src/mlu/sdf_render.py",width_biasとaa_radiusが効く
+T110,4,黒線合成,"src/mlu/composite.py tests/test_composite.py",白キャンバスにline_alphaを合成できる
+T120,5,tone_source生成（MVP後）,"src/mlu/tone_source.py tests/test_tone_source.py",line_mask領域を白側へ持ち上げられる
+T130,6,Lanczosフォールバック（MVP後）,"src/mlu/upscaler_external.py",外部バイナリなしで階調ブランチの開発用拡大ができる
+T140,6,Real-CUGAN adapter（MVP後）,"src/mlu/upscaler_external.py",realcuganコマンドを生成・実行できる
+T150,6,waifu2x adapter（MVP後）,"src/mlu/upscaler_external.py",waifu2xコマンドを生成・実行できる
+T160,6,Real-ESRGAN adapter（MVP後）,"src/mlu/upscaler_external.py",realesrganコマンドを生成・実行できる
+T170,6,doctorコマンド,"src/mlu/cli.py src/mlu/upscaler_external.py",依存関係を確認し外部ツールは任意項目として確認できる
+T180,7,パイプライン統合,"src/mlu/pipeline.py tests/test_pipeline_smoke.py",外部アップスケーラーなしで白キャンバス合成の最終PNGが出る
+T190,7,debugレイヤー保存,"src/mlu/debug_layers.py",主要中間画像がdebug-dirに保存される
+T200,7,run JSON保存,"src/mlu/debug_layers.py src/mlu/pipeline.py",実効設定が保存され外部コマンドはMVP後に保存対象へ追加できる
+T210,8,batchコマンド（MVP後）,"src/mlu/cli.py src/mlu/pipeline.py",複数画像を処理しsummaryを出す
+T220,9,compareコマンド（MVP後）,"src/mlu/cli.py",パラメータ比較シートを生成する
+T230,10,Potrace adapter（MVP後）,"src/mlu/potrace_renderer.py",line_renderer=potraceが動く
+T240,11,README整備,"README.md docs",Windows導入と調整方法が説明される

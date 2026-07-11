@@ -1,0 +1,53 @@
+version: 1
+
+base:
+  mask:
+    hysteresis:
+      enabled: false
+    cleanup:
+      fill_holes_area: 0
+  sdf:
+    soft_sdf_threshold: 0.34
+  line_stabilizer:
+    enabled: false
+  directional_smoothing:
+    enabled: false
+  centerline_simplification:
+    binarize_output: true
+    binary_threshold: 0.50
+
+variants:
+  - name: filter_none
+    overrides:
+      centerline_simplification:
+        enabled: false
+        filter_sigma_source_px: 0.0
+        strength: 1.0
+  - name: filter_sigma050_full_geometry
+    overrides:
+      centerline_simplification:
+        enabled: true
+        filter_sigma_source_px: 0.50
+        strength: 1.0
+        geometry_strength: 1.0
+  - name: filter_low_sigma075_geometry050
+    overrides:
+      centerline_simplification:
+        enabled: true
+        filter_sigma_source_px: 0.75
+        strength: 1.0
+        geometry_strength: 0.50
+  - name: filter_medium_sigma100_geometry075
+    overrides:
+      centerline_simplification:
+        enabled: true
+        filter_sigma_source_px: 1.00
+        strength: 1.0
+        geometry_strength: 0.75
+  - name: filter_high_sigma125_geometry100
+    overrides:
+      centerline_simplification:
+        enabled: true
+        filter_sigma_source_px: 1.25
+        strength: 1.0
+        geometry_strength: 1.0
