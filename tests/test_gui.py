@@ -822,6 +822,13 @@ def test_gui_check_ui_builds_preview_checkbox_next_to_scale() -> None:
         app.grayscale_mode_label.set("線画とグレー部分を分けて出力")
         app._on_grayscale_mode_changed(app.grayscale_mode_label.get())
         assert app.separate_psd_checkbox.grid_info()
+        assert app.separate_psd_checkbox.master is app.grayscale_mode_box.master
+        assert int(app.grayscale_mode_box.grid_info()["column"]) == 0
+        assert int(app.separate_psd_checkbox.grid_info()["column"]) == 1
+        app.update_idletasks()
+        assert app.separate_psd_checkbox.winfo_x() >= (
+            app.grayscale_mode_box.winfo_x() + app.grayscale_mode_box.winfo_width()
+        )
         app.separate_psd_enabled.set(False)
         app.grayscale_mode_label.set("線画と黒ベタのみ")
         app._on_grayscale_mode_changed(app.grayscale_mode_label.get())
