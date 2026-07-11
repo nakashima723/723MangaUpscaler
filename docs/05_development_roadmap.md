@@ -940,7 +940,7 @@ GUIの配布・更新対象を単体EXEだけに統一し、フォルダ版の�
 
 ### 現状
 
-ローカルの署名・検証・fail-closed release工程とWindows version resourceは実装済み。一時的なnon-exportable自己署名証明書で、SHA-256 Authenticode、DigiCert RFC 3161 timestamp、改ざん検知、診断3種、代表画像の画素一致を確認し、証明書と一時成果物は削除した。公開準備では、権利未確定assetを公開対象から除外し、合成sample、hash固定wheel、SHA固定GitHub Actions、SignPath Artifact Configurationと手動承認workflowを追加した。MSVC/OpenMP runtimeは公式Visual Studio Redist由来を検証し、不要なpywin32は除外した。ローカルGitは`main`で初期化済みだが、公開先と担当者が未確定なためcommit、remote、push、審査送信はまだ行っていない。自己署名は配布先で信頼されないため、本番 `dist/723UpScalerGUI.exe` は意図的に未署名のままである。
+ローカルの署名・検証・fail-closed release工程とWindows version resourceは実装済み。一時的なnon-exportable自己署名証明書で、SHA-256 Authenticode、DigiCert RFC 3161 timestamp、改ざん検知、代表画像の画素一致を確認し、証明書と一時成果物は削除した。公開準備では、権利未確定assetを公開対象から除外し、合成sample、hash固定wheel、SHA固定GitHub Actions、SignPath Artifact Configurationと手動承認workflowを追加した。MSVC/OpenMP runtimeは公式Visual Studio Redist由来を検証し、不要なpywin32は除外した。公開先は`nakashima723/723MangaUpscaler`、管理者は`nakashima723`として確定し、公開リポジトリ、protected `main`、CI、CodeQLを設定済みである。グレースケール・PSD対応後の依存関係と実EXEも再監査し、公式Apache-2.0全文へLICENSEを是正した。未署名pre-release専用workflowはSignPath提出と分離して用意したが、公開とFoundation申請は未実施である。自己署名は配布先で信頼されないため、本番 `dist/723MangaUpscaler.exe` は意図的に未署名のままである。
 
 ## フェーズ32：バージョン1.00・初期プレビュー文言更新
 
@@ -968,6 +968,164 @@ GUI左上とWindows版情報のバージョンを1.00へ統一し、画像読込
 ### 現状
 
 ソース、package metadata、Windows version resource、README、受け入れチェックを1.00へ同期した。初期Canvas文言を「入力画像および出力結果」へ変更し、実際のCanvas item textを検査するテストを追加した。単体EXEは再ビルド済みで、診断3種と代表画像の出力hash一致を確認した。
+
+## フェーズ33：相対線画・階調分離と3出力モード
+
+### 目的
+
+グレースケールまたは階調を含む画像で、広い階調面とその上の線を局所的な相対値から分離し、線画のみ・透明階調レイヤー分離・階調合成の3方式を選択可能にする。
+
+### タスク
+
+- [x] モルフォロジーclosingで局所階調を推定する
+- [x] `I = tone * (1 - line_alpha)` に基づく相対線濃度を実装する
+- [x] weak/strong相対差と絶対差を併用した線supportを実装する
+- [x] `legacy / line_only / separate / composite` を設定とCLIへ追加する
+- [x] GUIへグレー部分の扱いを選ぶメニューを追加し、プレビュー・単体・一括出力へ伝搬する
+- [x] `separate` で黒RGB・`alpha = 1 - tone_luminance` のRGBA PNGを副出力する
+- [x] `composite` で拡大階調と線画を合成する
+- [x] カラー/RGBA入力が既存グレースケール化を経由することを維持する
+- [x] 合成fixture、I/O、CLI、GUI、パイプライン、packaging回帰テストを追加する
+- [x] `sample07.png` で3方式を出力し、暗い空ROIと線保持を確認する
+- [x] README、CLI仕様、開発ログを更新する
+- [x] 単体EXEを再ビルドし、設定・UI・代表画像診断を確認する
+
+### 完了条件
+
+- 同じ絶対グレー値でも、広い面は階調、細い局所暗化は線として分けられる。
+- 明るい階調と暗い階調をまたぐ乗算的な薄線を連続して検出できる。
+- `line_only` と `separate` の主線画PNGが一致する。
+- `separate` の2レイヤーを白上で合成した結果と `composite` が量子化誤差内で一致する。
+- `sample07` の暗い空ROIを全面線扱いせず、電線・電柱・建物線を保持する。
+- 全テストと静的検査、単体EXE診断が成功する。
+
+### 現状
+
+局所背景に対する相対暗化率を使う実験分離を追加し、CLI・GUI・バッチで3方式を選択可能にした。`sample07` の暗い空ROIの線誤判定率は従来100%から約9.0%、全体線マスク率は35.4%から21.9%へ低下した。密集線や局所背景半径より太い構造が透明階調レイヤーへ薄く残る場合、完全同化線、画像端6pxは既知の実験上の限界として残る。
+
+## フェーズ34：グレー部分メニュー文言と相対モード線幅調整
+
+### 目的
+
+GUIのグレー処理選択肢を利用者向けの明確な文言へ変更し、相対分離3モードで濃く太く見える線を同一明るさの約2/3幅へ調整する。
+
+### タスク
+
+- [x] 見出しを「グレー部分の扱い」へ変更する
+- [x] 4つの選択肢を指定文言へ変更し、内部mode識別子は維持する
+- [x] 長い日本語ラベルが欠けないよう見出しとプルダウン幅を拡張する
+- [x] sample07でSDF線幅補正候補を比較する
+- [x] 非legacyの3モードだけへ `-0.75` source pxの線幅biasを加算する
+- [x] legacy出力へ補正を適用しない
+- [x] run JSONへ補正値・適用有無・実効SDF biasを記録する
+- [x] GUI文言、線幅2/3、3モード整合性の回帰テストを追加する
+- [x] README、設定例、CLI仕様、アルゴリズム設計、開発ログを更新する
+- [x] sample07の3出力を再生成し、単体EXEを再ビルド・診断する
+
+### 完了条件
+
+- GUIに指定された見出しと4つの選択肢が表示される。
+- sample07の2倍・同一明るさで、相対モードの50%濃度代表線幅が6pxから4pxになる。
+- `line_only` と `separate` の主線画が一致し、分離レイヤー再合成と `composite` の差が1LSB以内となる。
+- legacyの実効SDF biasは従来値のままとなる。
+- 全テスト、静的検査、単体EXE診断が成功する。
+
+### 現状
+
+指定文言への変更と相対3モード専用の `-0.75` source px補正を実装した。sample07では50%濃度の代表幅が6pxから4px、線占有面積が補正前の67.7%となり、同じ輪郭幅となる `-0.80` より残存線濃度を保った。legacyは補正対象外である。なお、この補正の既定値は細斜線の品質を優先したフェーズ35で `0.0` へ戻し、現在は任意設定として残している。
+
+## フェーズ35：グレー分離時の線画品質回復
+
+### 目的
+
+グレー部分を分離・合成する3モードで、検出確信度と描画coverageを分離する。白地では従来処理の線形状を再現し、グレー地では局所階調に対する相対暗化を使うことで、線の接続、細線、斜線を保ったまま階調面を除去する。
+
+### タスク
+
+- [x] 旧相対モードの線膨張と固定負biasによる細線欠落を定量診断する
+- [x] 検出用 `line_probability` と物理的な相対線alpha、描画用coverageを分離する
+- [x] 白地の従来coverageとグレー地の相対coverageを連続的に切り替える `quality_hybrid` を実装する
+- [x] 相対側の固定coverage gainと白地ルーティング範囲を設定・検証可能にする
+- [x] hybridで拾った線をtone側から除去し、分離・合成時の二重線を防ぐ
+- [x] 非legacyモードの既定線幅補正を `0.0` に戻し、`-0.75` は任意設定として残す
+- [x] run JSONとデバッグ画像へcoverage方式、gain、ルーティング重み、描画coverageを記録する
+- [x] 1px斜線、明るさ単調性、画像端線、3モード線alpha一致の回帰テストを追加する
+- [x] sample07のGUI既定値とCLI既定値で白地線再現、平坦グレー偽線、再合成誤差を検証する
+- [x] README、設定例、CLI仕様、アルゴリズム設計、開発ログを更新する
+- [x] 単体EXEを再ビルドし、設定・UI・代表画像診断とソース版画素一致を確認する
+
+### 完了条件
+
+- sample07の白背景で、hybridとlegacyの線IoUが99%以上となる。
+- 平坦なグレー面内部を線として出力しない。
+- 1px斜線が既定設定で消えず、白地ではlegacyと同じHR線alphaとなる。
+- `line_only / separate / composite` のHR線alphaが完全一致する。
+- 分離したtoneと線PNGの再合成が `composite` と最大1LSB以内で一致する。
+- 全テスト、静的検査、単体EXE診断が成功する。
+
+### 現状
+
+既定を `quality_hybrid` とし、局所背景0.90以下は相対coverage、0.98以上は従来coverage、その間はsmoothstepで連続補間する。相対側には固定gain 2.425を適用し、現在のSDF閾値からは逆算しない。sample07の白背景IoUはGUI既定0.291で99.9902%、CLI既定0.22で99.9831%となり、平坦グレー内部の偽線は0%だった。3モードのHR線alphaは完全一致し、分離レイヤー再合成とcompositeの差は最大1LSBである。硬い階調境界は線として解釈され得るため、実験機能の既知制約として残る。任意設定として残したグレー分離専用線幅biasは、GUIに接続されていなかったためフェーズ36で完全削除した。
+
+## フェーズ36：未接続のグレー分離専用線幅補正削除
+
+### 目的
+
+GUIから操作できず、既定値0.0で通常は作用しないグレー分離専用の線幅biasを削除する。線幅設定を全モード共通の既存SDF設定へ一本化し、不要な内部分岐とメタデータを残さない。
+
+### タスク
+
+- [x] GUIと専用線幅補正の接続有無を確認する
+- [x] `grayscale_processing` の専用設定と検証を削除する
+- [x] 非legacy時だけSDF設定を複製・加算するpipeline helperを削除する
+- [x] 専用補正値・適用有無・実効値のrun JSON項目を削除する
+- [x] 専用補正の比較テストと不要な0.0指定を削除する
+- [x] README、設定例、CLI仕様、アルゴリズム設計を現行仕様へ更新する
+- [x] sample07の3モードを再生成し、run JSONから旧項目が消えたことを確認する
+- [x] 全テストと単体EXE診断を完了する
+
+### 完了条件
+
+- ソース、テスト、現行設定例、現行仕様にグレー分離専用線幅設定が残らない。
+- `legacy / line_only / separate / composite` が同じ `sdf.width_bias_source_px` を参照する。
+- sample07の出力品質と3モード整合性を維持する。
+- 全テスト、静的検査、単体EXE診断が成功する。
+
+### 現状
+
+グレー分離専用の設定、加算処理、メタデータ、テスト、現行文書説明を削除した。全モードは共通の `sdf.width_bias_source_px` を直接参照し、GUI既定では0.0のまま動作する。sample07の再生成後run JSONには旧専用項目が存在せず、単体EXEとソース版の代表出力も画素完全一致した。
+
+## フェーズ37：グレー分離レイヤーのPSD出力
+
+### 目的
+
+GUIで「線画とグレー部分を分けて出力」を選んだ場合に、既定ONのPSD出力を選べるようにする。PSDはGrayscaleカラーモードとし、線画・グレー・白背景を独立レイヤーとして保存する。PSDをOFFにした場合は従来の2枚のPNG出力を維持する。
+
+### タスク
+
+- [x] GUIへseparate時だけ表示される「PSDで出力する」を既定ONで追加する
+- [x] 単体・一括出力開始時にPSD選択値を凍結し、workerへ渡す
+- [x] 8/16-bit Grayscale PSD v1 writerを外部依存なしで実装する
+- [x] `Line Art / Grayscale Tone / Background` の3レイヤーと統合画像を保存する
+- [x] PSD ONでは単一PSD、OFFでは主線PNGと透明グレーPNGを出力する
+- [x] GUI出力名予約、CLI、batch、run JSON、batch summaryへ形式を伝搬する
+- [x] inspect・compare・ライブプレビューでは従来どおり一時PNGを使用する
+- [x] sample07をPSD化し、独立readerでモード・深度・レイヤー・統合画像を確認する
+- [x] README、設定例、CLI仕様、アルゴリズム設計、受け入れチェックを更新する
+- [x] 全テストと単体EXEのPSD診断を完了する
+
+### 完了条件
+
+- GUI初期状態ではPSDチェックがONで、separate以外では非表示となる。
+- PSDはGrayscale、8または16 bits/channel、3レイヤーで再読込できる。
+- PSD統合画像が同設定のcomposite出力と最大1LSB以内で一致する。
+- PSD OFFのPNG命名・透明度・再合成を維持する。
+- 単体・一括・EXEからPSDを書き出せる。
+- 全テスト、静的検査、単体EXE診断が成功する。
+
+### 現状
+
+GUIのseparate選択時だけ「PSDで出力する」を表示し、既定ONとした。PSD v1のGrayscale header、レイヤーrecord、透明度channel、PackBits RLE、merged imageを専用writerで実装した。sample07の2倍PSDは8-bit Grayscale、2896x2172、3レイヤーとしてPillow、psd-tools、ImageMagickで再読込でき、merged imageは既存composite PNGと全画素一致した。CLI・YAMLは後方互換のPNG既定を維持する。
 
 ## Codex向け実装単位
 

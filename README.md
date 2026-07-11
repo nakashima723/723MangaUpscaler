@@ -1,6 +1,6 @@
 # 723 Manga Upscaler
 
-白地に黒線の漫画背景線画を、ローカルPCで2x/3x/4x/6x/8xにアップスケールするツールです。MVPではグレー階調、トーン、点描、網点トーンを品質保証対象にせず、線画マスクを抽出してSDFで高解像度の黒線を再生成します。
+漫画背景の線画やグレースケール画像を、ローカルPCで2x/3x/4x/6x/8xにアップスケールするツールです。白地の線画は線画マスクを抽出してSDFで高解像度の黒線を再生成し、グレーを含む画像は線画だけの出力、線画と階調のレイヤー分離、または階調との再合成を選べます。
 
 MVPの正確なスコープは [docs/00_mvp_scope.md](docs/00_mvp_scope.md)、開発ロードマップは [docs/05_development_roadmap.md](docs/05_development_roadmap.md) を参照してください。
 
@@ -29,7 +29,7 @@ dist\723MangaUpscaler.exe
 
 配布形式はこの単体EXEだけです。CustomTkinterのテーマ、フォント、設定、DIPlib DLL、第三者ライセンス原文を内包し、起動時に一時ディレクトリへ展開します。
 
-GUIのタイトルは「723モノクロ線画拡大ツール　1.00」です。入力画像、出力倍率、明るさ、出力フォルダを指定してPNGを書き出せます。倍率は4倍が既定で、2倍、3倍、6倍、8倍も選べます。明るさは0が既定で、-10から+10まで整数単位で調整できます。スライダー左右の「-」「+」ボタンでも1段階ずつ変更できます。
+GUIのタイトルは「723モノクロ線画拡大ツール　1.00」です。入力画像、出力倍率、明るさ、グレー部分の扱い、出力フォルダを指定してPNGまたはPSDを書き出せます。倍率は4倍が既定で、2倍、3倍、6倍、8倍も選べます。明るさは0が既定で、-10から+10まで整数単位で調整できます。スライダー左右の「-」「+」ボタンでも1段階ずつ変更できます。グレー部分の扱いは「線画と黒ベタのみ」が既定で、「グレー部分を除去して線画のみ出力」「線画とグレー部分を分けて出力」「グレー部分を線画と合成して出力」を選択できます。分離出力では、既定で `Line Art`、`Grayscale Tone`、`Background` の3レイヤーを持つグレースケールPSDを1ファイル生成し、設定を外すと主線PNGと階調PNGを個別に生成します。
 
 内部の `soft_sdf_threshold` は、最低値-10を0.060、中央0を0.291、最大値+10を0.621とする連続・単調な区分線形対応です。新しい0は従来の明るさ-3相当、新しい+10は従来の+7相当です。背景まで線として扱う0.00は使用しません。
 
@@ -49,7 +49,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\build_gui_exe.ps1
 
 一般配布では自己署名証明書を使いません。自己署名は無料ですが、利用者のPCでは信頼されずSmartScreen上も未署名と同等のためです。無料で信頼済みAuthenticode署名を得る候補として、条件を満たすオープンソースプロジェクト向けのSignPath Foundationを使用します。申請条件と運用方針は [コード署名ポリシー](docs/12_code_signing_policy.md) を参照してください。
 
-Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). Author、Reviewer、Approverは[プロジェクト管理者 nakashima723](https://github.com/nakashima723)です。署名要求はGitHub ActionsのCI userが提出し、管理者が手動承認します。詳細は[コード署名ポリシー](docs/12_code_signing_policy.md)、プライバシー条件は[PRIVACY.md](PRIVACY.md)を参照してください。SignPathへの申請と署名要求は、機能範囲を確定するまで無効です。
+Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). Author、Reviewer、Approverは[プロジェクト管理者 nakashima723](https://github.com/nakashima723)です。署名要求はGitHub ActionsのCI userが提出し、管理者が手動承認します。詳細は[コード署名ポリシー](docs/12_code_signing_policy.md)、プライバシー条件は[PRIVACY.md](PRIVACY.md)を参照してください。グレースケール・PSD対応とライセンス再監査は完了しており、署名対象と同じone-file EXEの未署名pre-releaseを先に公開してからSignPath Foundationへ申請します。審査承認とGitHub App、Project、Artifact Configuration、Signing Policyの設定がすべて完了するまで、実署名workflowは無効のままです。
 
 信頼済みCode Signing証明書がWindows証明書ストアにある環境では、次のコマンドがunsigned stageのビルド、SHA-256署名、DigiCert RFC 3161 timestamp、改ざん検知、最終成果物の置換までを行います。秘密鍵ファイルやパスワードはリポジトリへ置きません。
 
@@ -67,7 +67,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\verify_gui_signature.ps1 `
   -TestTamperDetection
 ```
 
-通常の `build_gui_exe.ps1` は必ず未署名EXEを生成します。公開リリースでは署名後のEXEだけを配布し、SHA-256も署名後に計算してください。
+通常の `build_gui_exe.ps1` は必ず未署名EXEを生成します。SignPath FoundationのReleased要件を満たすための初回pre-releaseに限り、未署名であることを明記し、GitHub-hosted buildのSHA-256とともに公開します。審査完了後の正式リリースでは検証済みの署名後EXEだけを配布し、SHA-256も署名とタイムスタンプの後に計算します。
 
 ## 最小実行
 
@@ -282,6 +282,28 @@ Potrace未設定時はSDFへ自動フォールバックせず、明確なエラ�
 
 ## 階調ブランチ
 
+### 相対的な線画・階調分離（実験機能）
+
+`--grayscale-mode` は、広いグレー面とその上の線を単純な黒閾値ではなく、周囲から推定した局所階調に対する相対暗化率で分離します。カラー入力は従来どおり先にsRGB輝度へ変換し、RGBAは白背景へ合成してから処理します。
+
+線coverageの既定 `quality_hybrid` は、局所階調が白に近い場所では従来処理の `line_soft` を使い、グレー上では相対暗化率を使います。局所階調 `B` に対する従来処理の重みは `B <= 0.90` で0、`B >= 0.98` で1となり、その間をsmoothstepで連続補間します。相対側だけは固定gain `2.425` を適用してから合成します。このgainは現在の `soft_sdf_threshold` から算出し直さないため、GUIの明るさ設定やCLIのSDF閾値は引き続き線の採否へ反映されます。比較用に `relative_contrast` と旧方式相当の `detection_probability` も設定ファイルから選べます。
+
+```powershell
+# 階調を捨て、相対検出した線画だけを出力
+mlu upscale input.png -o line.png --scale 4 --grayscale-mode line_only
+
+# 従来互換: line.pngと黒RGB・alpha=(1-階調輝度)のline_tone.pngを出力
+mlu upscale input.png -o line.png --scale 4 --grayscale-mode separate
+
+# グレースケールPSDへ線画・グレー・白背景をレイヤー分離して出力
+mlu upscale input.png -o layers.psd --scale 4 --grayscale-mode separate --separate-output-format psd
+
+# Lanczosまたは指定upscalerで拡大した階調へ線画を合成
+mlu upscale input.png -o composite.png --scale 4 --grayscale-mode composite
+```
+
+GUIで `separate` を選ぶと「PSDで出力する」が表示され、既定でONになります。ONでは単一のグレースケールPSDへ、上から `Line Art`、`Grayscale Tone`、`Background` の3レイヤーを保存します。線画とグレーは黒画素＋透明度チャンネルで、PSDの統合表示は `composite` と一致します。深度は `io.output_bit_depth` に従って8-bitまたは16-bitです。OFFでは従来どおり、主線PNGと `_tone.png` のRGBA PNGを出力します。CLI・YAMLの後方互換既定はPNGで、PSDを使う場合は `--separate-output-format psd` を明示します。`separate` / `composite` で `upscaler.engine: none` の場合は、階調枝だけ内部Lanczosを使用します。グレー分離モード専用の追加線幅補正は行わず、白地の線形状と細線接続を従来処理へ近づけます。局所背景推定半径より太い黒ベタ、線と階調が完全に同化した箇所、画像端から推定半径内は原理的に曖昧であり、現段階では実験対象です。
+
 `gray_tone` / `conservative` では、`tone_source` を高解像度化してからSDF線を合成できます。外部upscalerが未設定で `fallback: lanczos` の場合は、内部Lanczosで代替します。
 
 ```powershell
@@ -347,8 +369,7 @@ mlu upscale .\examples\synthetic_lineart.png -o .\tmp\gray\synthetic_realcugan.p
 
 - Real-CUGAN、waifu2x、Real-ESRGANの実バイナリ導入環境での品質保証
 - 16bit PNGの品質保証
-- アルファ保持やレイヤー分離出力
 
 ## ライセンス
 
-本体はApache-2.0です。単体EXEにはCPython、Tcl/Tk、NumPy/OpenBLAS、SciPy、Pillow、PyYAML、CustomTkinter、darkdetect、DIPlib、packaging、PyInstaller bootloaderの第三者告知と正規ライセンス原文を `licenses` 配下へ内包します。外部のPotrace、Real-CUGAN、waifu2x、Real-ESRGAN、モデルファイルは同梱せず、利用者が別途インストールしたコマンドとして呼び出します。外部ツールやモデルを再配布する場合は、それぞれのライセンスと再配布条件を別途確認してください。
+本体はApache-2.0です。グレースケール分離とPSD出力は標準ライブラリおよび既存のNumPy、SciPy、Pillowだけで実装しており、この更新による第三者依存関係の追加はありません。単体EXEにはCPython、Tcl/Tk、NumPy/OpenBLAS、SciPy、Pillow、PyYAML、CustomTkinter、darkdetect、DIPlib、packaging、PyInstaller bootloaderの第三者告知と正規ライセンス原文を `licenses` 配下へ内包します。外部のPotrace、Real-CUGAN、waifu2x、Real-ESRGAN、モデルファイルは同梱せず、利用者が別途インストールしたコマンドとして呼び出します。外部ツールやモデルを再配布する場合は、それぞれのライセンスと再配布条件を別途確認してください。

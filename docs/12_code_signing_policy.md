@@ -4,7 +4,7 @@
 
 公開配布の `723MangaUpscaler.exe` には、Windowsが信頼できる証明書チェーンを持つAuthenticode署名とRFC 3161タイムスタンプを付ける。自己署名証明書はローカル試験に限り、公開配布物へは使用しない。
 
-現時点で費用なしに信頼済みAuthenticode署名を得られる現実的な候補は、条件を満たすオープンソースプロジェクト向けのSignPath Foundationである。本プロジェクトを公開リポジトリへ移し、SignPath Foundationの審査とプロジェクト登録が完了した後、GitHub Actionsの成果物をSignPathへ送って署名する。
+現時点で費用なしに信頼済みAuthenticode署名を得られる現実的な候補は、条件を満たすオープンソースプロジェクト向けのSignPath Foundationである。本プロジェクトは公開リポジトリ化、グレースケール・PSD対応、配布物のライセンス再監査まで完了している。署名対象と同じone-file形式の未署名pre-releaseを先に公開してReleased要件を満たし、SignPath Foundationへ申請する。審査承認とプロジェクト設定が完了した後に限り、GitHub Actionsの成果物をSignPathへ送って署名する。
 
 Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
 
@@ -14,6 +14,7 @@ Free code signing provided by [SignPath.io](https://signpath.io/), certificate b
 - PyInstallerビルド、ライセンス収集、全自動テスト、静的検査、画像一致確認を終えてから署名する。
 - 署名後は圧縮、リネーム以外の書換え、リソース編集を行わない。
 - 公開するSHA-256は署名とタイムスタンプの後に計算する。
+- SignPath FoundationのReleased要件を満たす初回pre-releaseだけは、同じGitHub-hosted buildで作った未署名EXEを、未署名である旨とそのSHA-256を明記して公開する。
 
 ## 3. 暗号要件
 
@@ -61,14 +62,17 @@ This program will not transfer any information to other networked systems unless
 
 Microsoft Visual C++ / OpenMP runtimeは、Visual Studio公式x64 Redistributable由来を署名と発行元まで検証し、System Libraryとして同梱する。Potrace、Real-CUGAN、waifu2x、Real-ESRGANは任意の別install CLIであり、署名対象へ同梱しない。
 
+グレースケール分離とPSD出力は標準ライブラリおよび既存のNumPy、SciPy、Pillowで実装している。Adobe SDK、`psd-tools`、追加codec、AI model、第三者バイナリは導入しておらず、ライセンス再監査でも新しい配布条件は発生していない。
+
 ## 8. 無料署名サービス導入の残作業
 
-1. [公開リポジトリ](https://github.com/nakashima723/723MangaUpscaler)で機能と依存関係を安定させる。
-2. グレースケール対応など、次回公開版の機能範囲と配布metadataを確定する。
-3. GitHub-hosted buildから同じone-file形式のunsigned releaseを公開する。
-4. SignPath Foundationの条件、役割、MFA、privacy policyを再確認して申請する。
-5. SignPath GitHub Appを接続し、Project、Artifact Configuration、Signing Policyを作成する。
-6. `SIGNPATH_SUBMISSION_ENABLED=true`を審査完了後に設定し、CIから署名要求する。
-7. 返却された署名済みEXEを本書第6節の手順で検証して公開する。
+1. 更新済みのソースをprotected `main`へ反映し、CIとCodeQLを成功させる。
+2. GitHub-hosted buildから同じone-file形式の未署名EXEをpre-releaseとして公開する。
+3. SignPath Foundationの条件、役割、MFA、privacy policyを再確認して申請する。
+4. 審査承認後、SignPath GitHub Appを接続し、Project、Artifact Configuration、Signing Policyを作成する。
+5. 審査承認と全設定の完了を確認してから`SIGNPATH_SUBMISSION_ENABLED=true`を設定し、CIから署名要求する。
+6. 返却された署名済みEXEを本書第6節の手順で検証して正式公開する。
+
+申請手続きは進めるが、審査承認と上記設定が揃う前に`SIGNPATH_SUBMISSION_ENABLED`を有効化したり、実署名要求を送信したりしない。
 
 自己署名証明書の公開配布、利用者へのルート証明書install要求、PFXのリポジトリ保存は行わない。

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import numpy as np
+import pytest
 from PIL import Image, ImageDraw
 
 from mlu.composite import composite_black_lines, white_canvas
@@ -15,6 +16,15 @@ def _line_fixture(path) -> None:
     image[4, 1:9] = 0
     image[1:7, 5] = 0
     Image.fromarray(image).save(path)
+
+
+def _gray_tone_fixture(path) -> None:
+    tone = np.ones((40, 56), dtype=np.float32)
+    tone[:, 28:] = np.linspace(0.35, 0.85, 28, dtype=np.float32)
+    image = tone.copy()
+    image[8:10, 4:52] *= np.float32(0.35)
+    image[5:35, 18:20] *= np.float32(0.45)
+    Image.fromarray(np.rint(image * 255.0).astype(np.uint8)).save(path)
 
 
 def test_pipeline_outputs_scaled_final_png_for_each_mvp_scale(tmp_path) -> None:
@@ -38,6 +48,280 @@ def test_pipeline_outputs_scaled_final_png_for_each_mvp_scale(tmp_path) -> None:
         with Image.open(output_path) as output:
             assert output.mode == "L"
             assert output.size == (10 * scale, 8 * scale)
+
+
+def test_experimental_grayscale_modes_write_expected_artifacts(tmp_path) -> None:
+    input_path = tmp_path / "gray.png"
+    _gray_tone_fixture(input_path)
+
+    def config_for(mode: str):
+        return load_config(
+            cli_overrides={
+                "pipeline": {"scale": 2},
+                "grayscale_processing": {"mode": mode},
+                "composite": {"edge_alpha_gamma": 1.0},
+                "io": {"overwrite": True},
+            }
+        )
+
+    line_path = tmp_path / "line.png"
+    separate_path = tmp_path / "separate.png"
+    composite_path = tmp_path / "composite.png"
+    line_result = upscale_image(input_path, line_path, config_for("line_only"))
+    separate_result = upscale_image(input_path, separate_path, config_for("separate"))
+    composite_result = upscale_image(input_path, composite_path, config_for("composite"))
+
+    assert line_result.tone_output_path is None
+    assert not (tmp_path / "line_tone.png").exists()
+    assert separate_result.tone_output_path == tmp_path / "separate_tone.png"
+    assert separate_result.tone_output_path.exists()
+    assert composite_result.tone_output_path is None
+    assert separate_result.upscaler_result.engine == "lanczos"
+    assert composite_result.tone_used_in_final is True
+
+    with Image.open(line_path) as image:
+        line = np.asarray(image)
+    with Image.open(separate_path) as image:
+        separate_line = np.asarray(image)
+    with Image.open(separate_result.tone_output_path) as image:
+        tone_rgba = np.asarray(image)
+        assert image.mode == "RGBA"
+    with Image.open(composite_path) as image:
+        composite = np.asarray(image)
+
+    assert np.array_equal(line, separate_line)
+    np.testing.assert_array_equal(
+        line_result.sdf_result.line_alpha_hr,
+        separate_result.sdf_result.line_alpha_hr,
+    )
+    np.testing.assert_array_equal(
+        line_result.sdf_result.line_alpha_hr,
+        composite_result.sdf_result.line_alpha_hr,
+    )
+    tone = 1.0 - tone_rgba[..., 3].astype(np.float32) / 255.0
+    expected = tone * (line.astype(np.float32) / 255.0)
+    actual = composite.astype(np.float32) / 255.0
+    assert float(np.max(np.abs(expected - actual))) <= 2.0 / 255.0
+
+
+def test_separate_mode_can_write_layered_grayscale_psd(tmp_path) -> None:
+    input_path = tmp_path / "gray.png"
+    output_path = tmp_path / "separate.psd"
+    _gray_tone_fixture(input_path)
+    config = load_config(
+        cli_overrides={
+            "pipeline": {"scale": 2},
+            "grayscale_processing": {
+                "mode": "separate",
+                "separate_output_format": "psd",
+            },
+            "composite": {"edge_alpha_gamma": 1.0},
+            "io": {"overwrite": True},
+            "debug": {"save_run_json": True},
+        }
+    )
+
+    result = upscale_image(input_path, output_path, config)
+
+    assert result.output_path == output_path
+    assert result.tone_output_path is None
+    assert result.separate_output_format == "psd"
+    assert not (tmp_path / "separate_tone.png").exists()
+    payload = output_path.read_bytes()
+    assert payload[:4] == b"8BPS"
+    assert b"Line Art" in payload
+    assert b"Grayscale Tone" in payload
+    assert b"Background" in payload
+    with Image.open(output_path) as image:
+        assert image.mode == "L"
+        assert image.size == (112, 80)
+        composite = np.asarray(image).astype(np.float32) / 255.0
+    expected = result.upscaler_result.image * result.final
+    assert float(np.max(np.abs(composite - expected))) <= 1.0 / 255.0
+    metadata = json.loads(result.run_json_path.read_text(encoding="utf-8"))
+    grayscale = metadata["grayscale_processing"]
+    assert grayscale["separate_output_format"] == "psd"
+    assert grayscale["tone_output_path"] is None
+    assert grayscale["alpha_convention"] == (
+        "black grayscale pixels with transparency channels"
+    )
+
+
+@pytest.mark.parametrize("mode", ["legacy", "line_only", "composite"])
+def test_non_psd_modes_reject_psd_output_extension(tmp_path, mode: str) -> None:
+    input_path = tmp_path / "input.png"
+    _line_fixture(input_path)
+    config = load_config(
+        preset="line_only",
+        cli_overrides={
+            "pipeline": {"scale": 2},
+            "grayscale_processing": {"mode": mode},
+            "io": {"overwrite": True},
+        },
+    )
+
+    with pytest.raises(ValueError, match=r"must use \.png"):
+        upscale_image(input_path, tmp_path / "incorrect.psd", config)
+
+
+def test_separate_psd_rejects_png_output_extension(tmp_path) -> None:
+    input_path = tmp_path / "input.png"
+    _line_fixture(input_path)
+    config = load_config(
+        preset="line_only",
+        cli_overrides={
+            "pipeline": {"scale": 2},
+            "grayscale_processing": {
+                "mode": "separate",
+                "separate_output_format": "psd",
+            },
+            "io": {"overwrite": True},
+        },
+    )
+
+    with pytest.raises(ValueError, match=r"must use \.psd"):
+        upscale_image(input_path, tmp_path / "incorrect.png", config)
+
+
+def test_quality_hybrid_preserves_one_pixel_diagonal_like_legacy(
+    tmp_path,
+) -> None:
+    input_path = tmp_path / "diagonal.png"
+    image = Image.new("L", (48, 48), 255)
+    ImageDraw.Draw(image).line((8, 39, 39, 8), fill=0, width=1)
+    image.save(input_path)
+
+    results = {}
+    for mode in ("legacy", "line_only"):
+        config = load_config(
+            cli_overrides={
+                "pipeline": {"scale": 2},
+                "sdf": {"soft_sdf_threshold": 0.291},
+                "grayscale_processing": {"mode": mode},
+                "composite": {"edge_alpha_gamma": 1.0},
+                "io": {"overwrite": True},
+            }
+        )
+        results[mode] = upscale_image(
+            input_path,
+            tmp_path / f"diagonal_{mode}.png",
+            config,
+        )
+
+    legacy_alpha = results["legacy"].sdf_result.line_alpha_hr
+    hybrid_alpha = results["line_only"].sdf_result.line_alpha_hr
+    np.testing.assert_array_equal(hybrid_alpha, legacy_alpha)
+    assert float(hybrid_alpha.max()) == 1.0
+    assert int(np.count_nonzero(hybrid_alpha >= np.float32(0.5))) >= 64
+
+
+def test_quality_hybrid_sdf_area_decreases_across_gui_brightness_thresholds(
+    tmp_path,
+) -> None:
+    input_path = tmp_path / "relative_coverage.png"
+    tone = np.full((64, 64), 0.50, dtype=np.float32)
+    line_alpha = np.zeros_like(tone)
+    profile = np.array(
+        [0.05, 0.10, 0.18, 0.28, 0.50, 0.28, 0.18, 0.10, 0.05],
+        dtype=np.float32,
+    )
+    line_alpha[8:56, 28:37] = profile
+    gray = tone * (np.float32(1.0) - line_alpha)
+    Image.fromarray(np.rint(gray * 255.0).astype(np.uint8)).save(input_path)
+
+    areas: dict[int, int] = {}
+    for brightness, threshold in ((-10, 0.060), (0, 0.291), (10, 0.621)):
+        config = load_config(
+            cli_overrides={
+                "pipeline": {"scale": 2},
+                "sdf": {"soft_sdf_threshold": threshold},
+                "grayscale_processing": {"mode": "line_only"},
+                "composite": {"edge_alpha_gamma": 1.0},
+                "io": {"overwrite": True},
+            }
+        )
+        result = upscale_image(
+            input_path,
+            tmp_path / f"brightness_{brightness:+d}.png",
+            config,
+        )
+        areas[brightness] = int(
+            np.count_nonzero(result.sdf_result.line_alpha_hr >= np.float32(0.5))
+        )
+
+    assert areas[-10] > areas[0] > areas[10] > 0
+
+
+def test_quality_hybrid_border_line_is_not_doubled_in_composite(tmp_path) -> None:
+    input_path = tmp_path / "border_line.png"
+    image = np.full((32, 32), 255, dtype=np.uint8)
+    image[4:28, 0] = 0
+    Image.fromarray(image).save(input_path)
+
+    results = {}
+    for mode in ("line_only", "separate", "composite"):
+        config = load_config(
+            cli_overrides={
+                "pipeline": {"scale": 2},
+                "sdf": {"soft_sdf_threshold": 0.291},
+                "grayscale_processing": {"mode": mode},
+                "composite": {"edge_alpha_gamma": 1.0},
+                "io": {"overwrite": True},
+            }
+        )
+        results[mode] = upscale_image(
+            input_path,
+            tmp_path / f"border_line_{mode}.png",
+            config,
+        )
+
+    line_result = results["line_only"]
+    separate_result = results["separate"]
+    composite_result = results["composite"]
+    np.testing.assert_array_equal(
+        line_result.sdf_result.line_alpha_hr,
+        separate_result.sdf_result.line_alpha_hr,
+    )
+    np.testing.assert_array_equal(
+        line_result.sdf_result.line_alpha_hr,
+        composite_result.sdf_result.line_alpha_hr,
+    )
+
+    tone_source = separate_result.tone_source_result.image
+    assert float(np.mean(np.float32(1.0) - tone_source[4:28, 0])) < 1.0 / 255.0
+    assert float(tone_source[4:28, 0].min()) >= 0.98
+    assert np.all(tone_source[:, 1:] == np.float32(1.0))
+    np.testing.assert_allclose(
+        composite_result.final,
+        line_result.final,
+        rtol=0.0,
+        atol=1.0 / 255.0,
+    )
+
+
+def test_separate_mode_preflights_tone_sidecar_before_writing_main(tmp_path) -> None:
+    input_path = tmp_path / "gray.png"
+    output_path = tmp_path / "out.png"
+    tone_path = tmp_path / "out_tone.png"
+    _gray_tone_fixture(input_path)
+    tone_path.write_bytes(b"existing")
+    config = load_config(
+        cli_overrides={
+            "pipeline": {"scale": 2},
+            "grayscale_processing": {"mode": "separate"},
+            "io": {"overwrite": False},
+        }
+    )
+
+    try:
+        upscale_image(input_path, output_path, config)
+    except FileExistsError:
+        pass
+    else:
+        raise AssertionError("Expected existing tone sidecar to reject the run.")
+
+    assert not output_path.exists()
+    assert tone_path.read_bytes() == b"existing"
 
 
 def test_pipeline_can_enable_run_json_for_debugging(tmp_path) -> None:

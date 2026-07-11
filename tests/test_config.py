@@ -123,6 +123,55 @@ def test_load_config_rejects_invalid_soft_coverage_settings() -> None:
         load_config(cli_overrides={"mask": {"soft_coverage": {"gamma": 0.0}}})
 
 
+def test_load_config_validates_experimental_grayscale_processing() -> None:
+    config = load_config(
+        cli_overrides={"grayscale_processing": {"mode": "separate"}}
+    )
+    assert config["grayscale_processing"]["closing_radius"] == 6
+    assert config["grayscale_processing"]["separate_output_format"] == "png"
+    assert config["grayscale_processing"]["line_coverage_mode"] == "quality_hybrid"
+    assert config["grayscale_processing"]["relative_coverage_gain"] == 2.425
+
+    with pytest.raises(ConfigError, match="grayscale_processing.mode"):
+        load_config(cli_overrides={"grayscale_processing": {"mode": "unknown"}})
+    with pytest.raises(ConfigError, match="separate_output_format"):
+        load_config(
+            cli_overrides={
+                "grayscale_processing": {"separate_output_format": "tiff"}
+            }
+        )
+    with pytest.raises(ConfigError, match="strong_relative_contrast"):
+        load_config(
+            cli_overrides={
+                "grayscale_processing": {
+                    "weak_relative_contrast": 0.2,
+                    "strong_relative_contrast": 0.1,
+                }
+            }
+        )
+    with pytest.raises(ConfigError, match="line_coverage_mode"):
+        load_config(
+            cli_overrides={
+                "grayscale_processing": {"line_coverage_mode": "probability_only"}
+            }
+        )
+    with pytest.raises(ConfigError, match="relative_coverage_gain"):
+        load_config(
+            cli_overrides={
+                "grayscale_processing": {"relative_coverage_gain": 0.0}
+            }
+        )
+    with pytest.raises(ConfigError, match="legacy_blend_end"):
+        load_config(
+            cli_overrides={
+                "grayscale_processing": {
+                    "legacy_blend_start": 0.95,
+                    "legacy_blend_end": 0.90,
+                }
+            }
+        )
+
+
 def test_load_config_rejects_invalid_soft_alpha_mode() -> None:
     with pytest.raises(ConfigError, match="sdf.soft_alpha_mode"):
         load_config(cli_overrides={"sdf": {"soft_alpha_mode": "unknown"}})

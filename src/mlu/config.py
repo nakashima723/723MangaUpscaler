@@ -29,6 +29,22 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "tone_mode": "white_canvas",
         "debug": False,
     },
+    "grayscale_processing": {
+        "mode": "legacy",
+        "separate_output_format": "png",
+        "closing_radius": 6,
+        "weak_relative_contrast": 0.035,
+        "strong_relative_contrast": 0.12,
+        "line_coverage_mode": "quality_hybrid",
+        "relative_coverage_gain": 2.425,
+        "legacy_blend_start": 0.90,
+        "legacy_blend_end": 0.98,
+        "weak_absolute_contrast": 0.00392156862745098,
+        "strong_absolute_contrast": 0.011764705882352941,
+        "tone_floor": 0.00392156862745098,
+        "tone_dilate_radius": 1,
+        "tone_feather_sigma": 0.5,
+    },
     "mask": {
         "black_threshold": 0.72,
         "adaptive": {
@@ -602,6 +618,84 @@ def validate_config(config: dict[str, Any]) -> None:
     if not isinstance(protect_midtones, bool):
         raise ConfigError("tone_source.protect_midtones must be a boolean.")
 
+    grayscale_config = config.get("grayscale_processing", {})
+    grayscale_mode = grayscale_config.get("mode", "legacy")
+    if grayscale_mode not in {"legacy", "line_only", "separate", "composite"}:
+        raise ConfigError(
+            "grayscale_processing.mode must be one of: legacy, line_only, separate, "
+            "composite."
+        )
+    separate_output_format = grayscale_config.get("separate_output_format", "png")
+    if separate_output_format not in {"png", "psd"}:
+        raise ConfigError(
+            "grayscale_processing.separate_output_format must be one of: png, psd."
+        )
+    closing_radius = grayscale_config.get("closing_radius")
+    if not isinstance(closing_radius, int) or closing_radius < 1:
+        raise ConfigError("grayscale_processing.closing_radius must be a positive integer.")
+    for key in (
+        "weak_relative_contrast",
+        "strong_relative_contrast",
+        "weak_absolute_contrast",
+        "strong_absolute_contrast",
+        "tone_floor",
+    ):
+        value = grayscale_config.get(key)
+        if not isinstance(value, int | float) or not 0.0 <= float(value) < 1.0:
+            raise ConfigError(f"grayscale_processing.{key} must be in [0.0, 1.0).")
+    if float(grayscale_config["strong_relative_contrast"]) <= float(
+        grayscale_config["weak_relative_contrast"]
+    ):
+        raise ConfigError(
+            "grayscale_processing.strong_relative_contrast must be greater than "
+            "weak_relative_contrast."
+        )
+    line_coverage_mode = grayscale_config.get("line_coverage_mode")
+    if line_coverage_mode not in {
+        "quality_hybrid",
+        "relative_contrast",
+        "detection_probability",
+    }:
+        raise ConfigError(
+            "grayscale_processing.line_coverage_mode must be one of: "
+            "quality_hybrid, relative_contrast, detection_probability."
+        )
+    relative_coverage_gain = grayscale_config.get("relative_coverage_gain")
+    if (
+        not isinstance(relative_coverage_gain, int | float)
+        or float(relative_coverage_gain) <= 0.0
+    ):
+        raise ConfigError(
+            "grayscale_processing.relative_coverage_gain must be greater than 0.0."
+        )
+    for key in ("legacy_blend_start", "legacy_blend_end"):
+        value = grayscale_config.get(key)
+        if not isinstance(value, int | float) or not 0.0 <= float(value) <= 1.0:
+            raise ConfigError(f"grayscale_processing.{key} must be between 0.0 and 1.0.")
+    if float(grayscale_config["legacy_blend_end"]) <= float(
+        grayscale_config["legacy_blend_start"]
+    ):
+        raise ConfigError(
+            "grayscale_processing.legacy_blend_end must be greater than "
+            "legacy_blend_start."
+        )
+    if float(grayscale_config["strong_absolute_contrast"]) < float(
+        grayscale_config["weak_absolute_contrast"]
+    ):
+        raise ConfigError(
+            "grayscale_processing.strong_absolute_contrast must be at least "
+            "weak_absolute_contrast."
+        )
+    tone_dilate_radius = grayscale_config.get("tone_dilate_radius")
+    if not isinstance(tone_dilate_radius, int) or tone_dilate_radius < 0:
+        raise ConfigError(
+            "grayscale_processing.tone_dilate_radius must be a non-negative integer."
+        )
+    tone_feather_sigma = grayscale_config.get("tone_feather_sigma")
+    if not isinstance(tone_feather_sigma, int | float) or float(tone_feather_sigma) < 0.0:
+        raise ConfigError(
+            "grayscale_processing.tone_feather_sigma must be a non-negative number."
+        )
     composite_config = config.get("composite", {})
     tone_usage = composite_config.get("tone_usage", "auto")
     if tone_usage not in {"auto", "always", "never"}:
