@@ -7,13 +7,14 @@ import re
 import tempfile
 import threading
 import tkinter as tk
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, messagebox
 from typing import Any
 
 import customtkinter as ctk
-from PIL import Image, ImageOps, ImageTk
+from PIL import Image, ImageChops, ImageOps, ImageTk
 
 from mlu import __version__
 from mlu.config import ConfigError, load_config
@@ -392,9 +393,54 @@ def generate_output_preview_image(
 
     with tempfile.TemporaryDirectory(prefix="723UpScaler_preview_") as temp_dir:
         preview_path = Path(temp_dir) / "preview.png"
-        upscale_image(input_path, preview_path, config, preset="line_only")
+        preview_config = config
+        grayscale = config.get("grayscale_processing", {})
+        if grayscale.get("mode") == "separate":
+            # The editable output has separate line and tone layers, but its
+            # visible composite is identical to composite mode.  Render that
+            # merged appearance for the GUI instead of showing the line PNG.
+            preview_config = deepcopy(config)
+            preview_grayscale = preview_config.setdefault(
+                "grayscale_processing",
+                {},
+            )
+            preview_grayscale["mode"] = "composite"
+            preview_grayscale["separate_output_format"] = "png"
+        upscale_image(input_path, preview_path, preview_config, preset="line_only")
         with Image.open(preview_path) as image:
             return ImageOps.exif_transpose(image).convert("L").copy()
+
+
+def load_output_preview_image(
+    output_path: Path,
+    *,
+    tone_output_path: Path | None = None,
+) -> Image.Image:
+    """Load an output preview, merging a separated PNG pair when supplied."""
+
+    with Image.open(output_path) as image:
+        line_image = ImageOps.exif_transpose(image).convert("L").copy()
+    if tone_output_path is None:
+        return line_image
+    try:
+        with Image.open(tone_output_path) as tone_file:
+            tone_alpha = ImageOps.exif_transpose(tone_file).convert("RGBA").getchannel(
+                "A"
+            )
+        try:
+            if tone_alpha.size != line_image.size:
+                raise ValueError(
+                    "Separated line and tone previews must have the same size."
+                )
+            tone_image = ImageOps.invert(tone_alpha)
+            try:
+                return ImageChops.multiply(line_image, tone_image)
+            finally:
+                tone_image.close()
+        finally:
+            tone_alpha.close()
+    finally:
+        line_image.close()
 
 
 class UpscalerGui(ctk.CTk):
@@ -1367,13 +1413,25 @@ class UpscalerGui(ctk.CTk):
                 separate_output_format=separate_output_format,
             )
             with self._pipeline_lock:
-                upscale_image(input_path, output_path, config, preset="line_only")
+                result = upscale_image(
+                    input_path,
+                    output_path,
+                    config,
+                    preset="line_only",
+                )
         except (ConfigError, OSError, ValueError, RuntimeError) as exc:
             self.after(0, lambda error=exc: self._finish_export(None, error))
         except Exception as exc:  # noqa: BLE001 - keep GUI from crashing.
             self.after(0, lambda error=exc: self._finish_export(None, error))
         else:
-            self.after(0, lambda: self._finish_export(output_path, None))
+            self.after(
+                0,
+                lambda: self._finish_export(
+                    output_path,
+                    None,
+                    tone_output_path=result.tone_output_path,
+                ),
+            )
 
     def _run_batch_export_worker(
         self,
@@ -1397,6 +1455,7 @@ class UpscalerGui(ctk.CTk):
         failures: list[tuple[Path, str]] = []
         succeeded_count = 0
         first_output_path: Path | None = None
+        first_tone_output_path: Path | None = None
         for index, (input_path, output_path) in enumerate(jobs, start=1):
             self.after(
                 0,
@@ -1406,13 +1465,19 @@ class UpscalerGui(ctk.CTk):
             )
             try:
                 with self._pipeline_lock:
-                    upscale_image(input_path, output_path, config, preset="line_only")
+                    result = upscale_image(
+                        input_path,
+                        output_path,
+                        config,
+                        preset="line_only",
+                    )
             except Exception as exc:  # noqa: BLE001 - continue with the remaining images.
                 failures.append((input_path, str(exc)))
             else:
                 succeeded_count += 1
                 if index == 1:
                     first_output_path = output_path
+                    first_tone_output_path = result.tone_output_path
 
         self.after(
             0,
@@ -1421,6 +1486,7 @@ class UpscalerGui(ctk.CTk):
                 succeeded_count,
                 tuple(failures),
                 None,
+                first_tone_output_path=first_tone_output_path,
             ),
         )
 
@@ -1439,7 +1505,13 @@ class UpscalerGui(ctk.CTk):
             separate_output_format=separate_output_format,
         )
 
-    def _finish_export(self, output_path: Path | None, error: BaseException | None) -> None:
+    def _finish_export(
+        self,
+        output_path: Path | None,
+        error: BaseException | None,
+        *,
+        tone_output_path: Path | None = None,
+    ) -> None:
         self._export_running = False
         self._set_controls_enabled(True)
         if error is not None:
@@ -1452,7 +1524,10 @@ class UpscalerGui(ctk.CTk):
             return
         self.status_text.set(f"出力しました: {output_path}")
         if self.output_preview_enabled.get():
-            self._load_output_preview(output_path)
+            self._load_output_preview(
+                output_path,
+                tone_output_path=tone_output_path,
+            )
 
     def _finish_batch_export(
         self,
@@ -1460,6 +1535,8 @@ class UpscalerGui(ctk.CTk):
         succeeded_count: int,
         failures: tuple[tuple[Path, str], ...],
         error: BaseException | None,
+        *,
+        first_tone_output_path: Path | None = None,
     ) -> None:
         self._export_running = False
         self._set_controls_enabled(True)
@@ -1472,7 +1549,10 @@ class UpscalerGui(ctk.CTk):
 
         total_count = succeeded_count + len(failures)
         if first_output_path is not None and self.output_preview_enabled.get():
-            self._load_output_preview(first_output_path)
+            self._load_output_preview(
+                first_output_path,
+                tone_output_path=first_tone_output_path,
+            )
         if not failures:
             self.status_text.set(f"{succeeded_count}枚の一括変換が完了しました。")
             return
@@ -1574,7 +1654,12 @@ class UpscalerGui(ctk.CTk):
         )
         self._render_preview()
 
-    def _load_output_preview(self, path: Path) -> None:
+    def _load_output_preview(
+        self,
+        path: Path,
+        *,
+        tone_output_path: Path | None = None,
+    ) -> None:
         if self.input_preview_image is None and self.input_path.get():
             input_preview_path = (
                 self.batch_preview_input_path
@@ -1586,8 +1671,10 @@ class UpscalerGui(ctk.CTk):
                     input_preview_path,
                     schedule_output_preview=False,
                 )
-        with Image.open(path) as image:
-            output_image = ImageOps.exif_transpose(image).convert("L").copy()
+        output_image = load_output_preview_image(
+            path,
+            tone_output_path=tone_output_path,
+        )
         self._set_output_preview_image(output_image)
 
     def _fit_preview(self) -> None:

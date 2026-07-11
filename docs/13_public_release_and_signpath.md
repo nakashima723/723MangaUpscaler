@@ -8,7 +8,9 @@ Configuration、privacy/security/contribution文書までは準備済みであ�
 グレースケールの相対的な線画・階調分離、PNG分離出力、3レイヤーのグレースケールPSD出力を
 次回公開版へ追加し、依存関係と実配布EXEのライセンス再監査も完了した。この更新による
 新規Python依存、Adobe SDK、追加codec、AI model、第三者バイナリの導入はない。
-現在は同じone-file形式の未署名pre-releaseを先に公開し、SignPath Foundationへ申請する段階である。
+同じone-file形式の未署名pre-release `v1.00-unsigned.1` は公開済みである。PSDレイヤー順と
+分離プレビューを修正した最新版は履歴を置換せず `v1.00-unsigned.2` として追加公開し、
+そのDownload URLを使ってSignPath Foundationへ申請する段階である。
 申請は進めるが、審査承認とGitHub App、Project、Artifact Configuration、Signing Policyの
 設定が完了するまで実署名workflowは明示的に無効のままとする。
 

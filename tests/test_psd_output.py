@@ -72,6 +72,11 @@ def test_save_layered_grayscale_psd_has_layers_and_exact_8bit_composite(
     assert b"Line Art" in payload
     assert b"Grayscale Tone" in payload
     assert b"Background" in payload
+    assert (
+        payload.index(b"Background")
+        < payload.index(b"Grayscale Tone")
+        < payload.index(b"Line Art")
+    )
 
     with Image.open(output) as image:
         assert image.format == "PSD"

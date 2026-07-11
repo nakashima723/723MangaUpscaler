@@ -2414,3 +2414,32 @@ GUIに載せる場合も、既定値は0で完全無効にし、品質確認後�
 - 更新版の公開前監査についての未達成ロードマップは残り0件。
 - コード署名フェーズ31についての未達成ロードマップは残り3件。
 - 次の作業予定は、更新版をprotected `main`へ反映し、GitHub-hosted buildからunsigned 1.00 pre-releaseを公開することです。
+
+## 2026-07-11 フェーズ39：PSD背景レイヤー順と分離プレビュー修正
+
+### 原因と改修内容
+
+- PSD writerは利用者向けの上から `Line Art / Grayscale Tone / Background` という並びを、そのままfile record順へ書いていた。PSDのrecordは下層から上層として扱われるため、reader上ではBackgroundが最上位になっていた。
+- file recordと対応channel dataを `Background / Grayscale Tone / Line Art` のbottom-to-top順へ統一した。埋込merged imageの式と各レイヤー画素は変更していない。
+- separateのライブプレビューは主線 `preview.png` だけを開き、tone sidecarを無視していた。入力configを変更せず、プレビュー実行時だけ非破壊コピーをcomposite/pngへ切り替えて統合表示を生成するようにした。
+- PSDをOFFにした分離PNGでは、出力完了後にも主線PNGだけを再読込していた。pipeline resultのtone sidecar pathをGUI threadへ渡し、tone alphaから復元した階調と主線を乗算して表示するようにした。PSD出力は従来どおり埋込merged imageを読む。
+- PSD record順、separate live previewとcompositeの画素完全一致、分離PNGの出力後統合表示、tone sidecar path伝搬を回帰テストへ追加した。
+
+### 今後同じミスをしないための有益な失敗
+
+- PSDの埋込merged imageだけをPillowで検査しても、レイヤーrecord順や各channelの対応が壊れていることは検出できない。file record順と、レイヤーからの強制再合成を別々に検査する。
+- 文書上の「上から下」の論理順を、そのままPSD file record順とみなしてはいけない。serializer境界でfile仕様のbottom-to-topへ変換し、recordとchannel dataを同じ順序で扱う。
+- 分離出力の主成果物だけをプレビューすると、編集用構造は正しくても利用者が見る統合結果と一致しない。ライブ表示と出力後表示の双方で、PSD mergedまたはPNG pairの統合像を検査する。
+
+### 検証
+
+- Ruff、全246テスト、`pip check`、ライセンス収集、`git diff --check`が成功した。
+- psd-toolsによるfile record順は `Background / Grayscale Tone / Line Art` となり、画面上では逆順の `Line Art / Grayscale Tone / Background` になる。EXE生成PSDのレイヤー強制再合成と埋込merged imageは全画素一致した。
+- `dist/723MangaUpscaler.exe`を再ビルドし、`--version`、`--check-config`、`--check-ui`、`--check-upscale`、`--check-separate-psd`がすべて終了コード0となった。
+- EXEは33,937,507 byte、SHA-256 `79641845D8E2A8E4D98E5ED8207F71691AD27F7F915B89036B6FA58AF0F8E29E`。ProductVersionは1.00、FileVersionは1.00.0.0、署名状態は`NotSigned`である。
+
+### ロードマップ状態
+
+- PSDレイヤー順と分離プレビュー修正フェーズ38についての未達成ロードマップは残り0件。
+- コード署名フェーズ31についての未達成ロードマップは残り2件。
+- 次の作業予定は、修正版をprotected `main`へ反映し、`v1.00-unsigned.2`を公開してからSignPath Foundationへ申請することです。
