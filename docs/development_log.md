@@ -2400,6 +2400,7 @@ GUIに載せる場合も、既定値は0で完全無効にし、品質確認後�
 - Windows PowerShell 5.1の`PSModulePath`へPowerShell 7用moduleが先に入る環境では、`Get-AuthenticodeSignature`の自動importが失敗する。ローカル診断ではWindows PowerShell標準module pathを明示し、CIは隔離された`windows-2022` runnerで再検証する。
 - PyInstallerのresource更新は一時的な`EndUpdateResourceW`エラーを返す場合がある。内蔵retryが成功したか最終終了コードと完成EXEのmetadataを確認し、警告1行だけで失敗と判断しない。
 - PowerShellでは、存在確認のため意図的に失敗させた外部コマンドの`$LASTEXITCODE`がステップ末尾まで残る。`gh release view`でRelease不存在を正常系として扱う場合は、分岐後に終了コードを0へ戻し、GitHub Actionsのshell wrapperに失敗と解釈させない。
+- hash固定の第三者依存だけをinstallするclean runnerでは、リポジトリ本体の`src/mlu`は自動的にimport pathへ入らない。ソース版と凍結EXEの画素比較を行う検証ステップには`PYTHONPATH=${{ github.workspace }}/src`を限定設定し、未installのsource treeを明示的に参照する。
 
 ### 検証
 
