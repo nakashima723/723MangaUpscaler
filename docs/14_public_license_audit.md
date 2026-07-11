@@ -58,7 +58,7 @@ dependencyをversionとwheel SHA-256で固定する。GitHub Actionsもrelease w
 ## 残る確認
 
 - PSDレイヤー順・GUIプレビュー修正版は依存lock、build script、ライセンス原文、配布境界を変更せず、標準ライブラリと既存Pillowだけを使用するため、新しいライセンス条件は発生しない
-- 初回unsigned public release `v1.00-unsigned.1` は公開済み。修正版は履歴を置換せず `v1.00-unsigned.2` として新規公開する
+- 初回unsigned public release `v1.00-unsigned.1` と、PSDレイヤー順・preview修正版 `v1.00-unsigned.2` は公開済み。両Releaseのtag、asset、SHA-256を変更せず保持する
 - GitHubとSignPathにおけるMFA有効化の管理者確認
 - SignPath Foundationによる最終的な適格性判断
 - 審査後に発行される証明書、slug、organization IDの実値確認
