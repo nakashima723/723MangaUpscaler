@@ -2174,3 +2174,10 @@ GUIに載せる場合も、既定値は0で完全無効にし、品質確認後�
 
 - コード署名フェーズ31についての未達成ロードマップは残り3件。
 - 次の作業予定は、GitHub CI成功を確認して`main`のforce push・削除禁止とrequired CI checkを設定することです。
+
+### GitHub検証結果
+
+- 修正commit `edcf8fa`のGitHub CIは、hash固定依存install、`pip check`、Ruff、全212テスト、license bundle収集、合成sampleのdecode後pixel完全一致をすべて通過した。
+- 同commitのCodeQL security analysisも成功した。
+- `main`保護では`test`と`codeql`をrequired status checksとし、branchを最新に保つこと、管理者を含むforce push禁止、branch削除禁止、conversation解決を必須にする。
+- SignPath実申請、GitHub App接続、secret/variable設定、署名要求は引き続き実施していない。
