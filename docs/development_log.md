@@ -2150,3 +2150,27 @@ GUIに載せる場合も、既定値は0で完全無効にし、品質確認後�
 
 - コード署名フェーズ31についての未達成ロードマップは残り3件。
 - 次の作業予定は、グレースケール対応など次回公開版の機能範囲を確定し、license再監査後にGitHub-hosted buildから同形式のunsigned pre-releaseを公開することです。
+
+## 2026-07-11 初回GitHub CIのPNG再現検査修正
+
+### 原因と修正
+
+- 初回GitHub CIでは全212テスト、Ruff、依存検査、license収集まで成功し、最後の合成sample再現検査だけが失敗した。
+- 従来検査はPNG file全体のbyte一致を要求していたため、local Python 3.11.2とGitHub runner Python 3.11.9のencoding/compression差まで失敗対象にしていた。これは描画画素やアプリ出力品質の差ではない。
+- `examples/verify_synthetic_lineart.py`を追加し、commit済みPNGをdecodeしたmode、size、全pixel byteを保持してから再生成し、decode後の完全一致を検証するよう変更した。
+- GitHub CIは上記scriptを実行し、PNG containerの圧縮表現ではなく、公開sampleの実画像内容を保証する。
+
+### 今後同じミスをしないための有益な失敗
+
+- 画質保証で重要なのはdecode後のpixelであり、PNG圧縮byteはPython patch、Pillow、zlib等の差で変わり得る。reproducible buildのbyte一致と画像品質のpixel一致を混同しない。
+- byte-identical成果物が必要な場合はencoderとnative dependencyまで固定した別検査にし、画質回帰testとは分離する。
+
+### 検証
+
+- localで合成sample再生成前後のmode、size、全pixel byteが一致した。
+- Ruff、全212テスト、`git diff --check`が成功した。
+
+### ロードマップ状態
+
+- コード署名フェーズ31についての未達成ロードマップは残り3件。
+- 次の作業予定は、GitHub CI成功を確認して`main`のforce push・削除禁止とrequired CI checkを設定することです。

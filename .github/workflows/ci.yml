@@ -32,9 +32,5 @@ jobs:
         run: python -m pytest -q
       - name: Verify distributable license bundle
         run: python tools/collect_distribution_licenses.py build/license_bundle
-      - name: Verify public sample is reproducible
-        shell: pwsh
-        run: |
-          python examples/generate_synthetic_lineart.py
-          if (git diff --exit-code -- examples/synthetic_lineart.png) { exit 0 }
-          throw "The committed synthetic sample is not reproducible."
+      - name: Verify public sample pixels are reproducible
+        run: python examples/verify_synthetic_lineart.py
