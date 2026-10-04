@@ -14,6 +14,7 @@ ALLOWED_NDIMAGE_CALLS = {
     "gaussian_filter",
     "gaussian_filter1d",
     "generate_binary_structure",
+    "grey_closing",
     "label",
     "map_coordinates",
     "maximum_filter",

@@ -75,6 +75,10 @@ def run_compare(
     for index, variant in enumerate(variants, start=1):
         config = deep_merge(base_config, variant.overrides)
         config = deep_merge(config, {"debug": {"save_run_json": True}})
+        config = deep_merge(
+            config,
+            {"grayscale_processing": {"separate_output_format": "png"}},
+        )
         validate_config(config)
         output_path = variants_dir / f"{index:02d}_{variant.name}.png"
         item_debug_dir = (

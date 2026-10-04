@@ -34,6 +34,77 @@ def test_upscale_writes_scaled_final_png(tmp_path) -> None:
         assert output.size == (6, 4)
 
 
+def test_upscale_grayscale_separate_mode_writes_tone_layer(tmp_path) -> None:
+    input_path = tmp_path / "input.png"
+    output_path = tmp_path / "output.png"
+    image = np.full((16, 20), 230, dtype=np.uint8)
+    image[7:9, 2:18] = 80
+    Image.fromarray(image).save(input_path)
+
+    exit_code = main(
+        [
+            "upscale",
+            str(input_path),
+            "-o",
+            str(output_path),
+            "--scale",
+            "2",
+            "--grayscale-mode",
+            "separate",
+            "--save-run-json",
+        ]
+    )
+
+    assert exit_code == 0
+    tone_path = tmp_path / "output_tone.png"
+    assert tone_path.exists()
+    with Image.open(tone_path) as tone:
+        assert tone.mode == "RGBA"
+        assert tone.size == (40, 32)
+    metadata = json.loads(output_path.with_suffix(".mlus-run.json").read_text(encoding="utf-8"))
+    assert metadata["grayscale_processing"]["mode"] == "separate"
+    assert metadata["grayscale_processing"]["separate_output_format"] == "png"
+    assert metadata["grayscale_processing"]["tone_output_path"] == str(tone_path)
+    assert metadata["sdf_diagnostics"]["width_bias_source_px"] == 0.0
+    separation = metadata["grayscale_processing"]["separation"]
+    assert separation["line_coverage_mode"] == "quality_hybrid"
+    assert separation["relative_coverage_gain"] == 2.425
+    assert separation["legacy_blend_start"] == 0.90
+    assert separation["legacy_blend_end"] == 0.98
+    assert 0.0 <= separation["render_line_coverage_mean"] <= 1.0
+    assert 0.0 <= separation["render_line_support_ratio"] <= 1.0
+
+
+def test_upscale_grayscale_separate_mode_can_write_psd(tmp_path) -> None:
+    input_path = tmp_path / "input.png"
+    output_path = tmp_path / "output.psd"
+    image = np.full((16, 20), 230, dtype=np.uint8)
+    image[7:9, 2:18] = 80
+    Image.fromarray(image).save(input_path)
+
+    exit_code = main(
+        [
+            "upscale",
+            str(input_path),
+            "-o",
+            str(output_path),
+            "--scale",
+            "2",
+            "--grayscale-mode",
+            "separate",
+            "--separate-output-format",
+            "psd",
+            "--save-run-json",
+        ]
+    )
+
+    assert exit_code == 0
+    assert output_path.read_bytes()[:4] == b"8BPS"
+    assert not (tmp_path / "output_tone.png").exists()
+    metadata = json.loads(output_path.with_suffix(".mlus-run.json").read_text(encoding="utf-8"))
+    assert metadata["grayscale_processing"]["separate_output_format"] == "psd"
+
+
 def test_inspect_writes_input_gray_debug_layer(tmp_path) -> None:
     input_path = tmp_path / "input.png"
     debug_dir = tmp_path / "debug"

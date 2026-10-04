@@ -35,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     upscale = subparsers.add_parser("upscale", help="Upscale a single line-art image.")
     upscale.add_argument("input", help="Input image path.")
-    upscale.add_argument("-o", "--output", required=True, help="Output PNG path.")
+    upscale.add_argument("-o", "--output", required=True, help="Output PNG or PSD path.")
     upscale.add_argument("--scale", type=int, choices=SUPPORTED_SCALES, default=4)
     upscale.add_argument("--preset", default="line_only")
     upscale.add_argument("--config", help="YAML config path.")
@@ -48,7 +48,12 @@ def build_parser() -> argparse.ArgumentParser:
     upscale.add_argument("--line-renderer", choices=("sdf", "potrace"), help="Line renderer.")
     upscale.add_argument("--invert", action="store_true", help="Treat input as inverted.")
     upscale.add_argument("--overwrite", action="store_true", help="Overwrite existing output.")
-    upscale.add_argument("--output-bit-depth", type=int, choices=(8, 16), help="Output PNG depth.")
+    upscale.add_argument(
+        "--output-bit-depth",
+        type=int,
+        choices=(8, 16),
+        help="Output PNG or PSD depth.",
+    )
     upscale.add_argument(
         "--upscaler",
         choices=("none", "lanczos", "realcugan", "waifu2x", "realesrgan"),
@@ -63,6 +68,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--tone-usage",
         choices=("auto", "always", "never"),
         help="Whether tone_hr is used as the final composite base.",
+    )
+    upscale.add_argument(
+        "--grayscale-mode",
+        choices=("legacy", "line_only", "separate", "composite"),
+        help="Experimental grayscale handling and output mode.",
+    )
+    upscale.add_argument(
+        "--separate-output-format",
+        choices=("png", "psd"),
+        help="Output format used when --grayscale-mode=separate.",
     )
     upscale.add_argument(
         "--sdf-distance-source",
@@ -123,6 +138,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--tone-usage",
         choices=("auto", "always", "never"),
         help="Whether tone_hr is used as the final composite base.",
+    )
+    inspect.add_argument(
+        "--grayscale-mode",
+        choices=("legacy", "line_only", "separate", "composite"),
+        help="Experimental grayscale handling and output mode.",
     )
     inspect.add_argument(
         "--sdf-distance-source",
@@ -191,7 +211,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     batch.add_argument("--invert", action="store_true", help="Treat inputs as inverted.")
     batch.add_argument("--overwrite", action="store_true", help="Overwrite existing outputs.")
-    batch.add_argument("--output-bit-depth", type=int, choices=(8, 16), help="Output PNG depth.")
+    batch.add_argument(
+        "--output-bit-depth",
+        type=int,
+        choices=(8, 16),
+        help="Output PNG or PSD depth.",
+    )
     batch.add_argument(
         "--upscaler",
         choices=("none", "lanczos", "realcugan", "waifu2x", "realesrgan"),
@@ -206,6 +231,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--tone-usage",
         choices=("auto", "always", "never"),
         help="Whether tone_hr is used as the final composite base.",
+    )
+    batch.add_argument(
+        "--grayscale-mode",
+        choices=("legacy", "line_only", "separate", "composite"),
+        help="Experimental grayscale handling and output mode.",
+    )
+    batch.add_argument(
+        "--separate-output-format",
+        choices=("png", "psd"),
+        help="Output format used when --grayscale-mode=separate.",
     )
     batch.add_argument(
         "--sdf-distance-source",
@@ -276,6 +311,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--tone-usage",
         choices=("auto", "always", "never"),
         help="Whether tone_hr is used as the final composite base.",
+    )
+    compare.add_argument(
+        "--grayscale-mode",
+        choices=("legacy", "line_only", "separate", "composite"),
+        help="Experimental grayscale handling and output mode.",
     )
     compare.add_argument(
         "--sdf-distance-source",
@@ -461,6 +501,15 @@ def _config_overrides(args: argparse.Namespace) -> dict[str, object]:
         composite_overrides["tone_usage"] = tone_usage
     if composite_overrides:
         overrides["composite"] = composite_overrides
+    grayscale_overrides: dict[str, object] = {}
+    grayscale_mode = getattr(args, "grayscale_mode", None)
+    if grayscale_mode is not None:
+        grayscale_overrides["mode"] = grayscale_mode
+    separate_output_format = getattr(args, "separate_output_format", None)
+    if separate_output_format is not None:
+        grayscale_overrides["separate_output_format"] = separate_output_format
+    if grayscale_overrides:
+        overrides["grayscale_processing"] = grayscale_overrides
     line_stabilizer_overrides: dict[str, object] = {}
     strength = getattr(args, "line_stabilizer_strength", None)
     if getattr(args, "disable_line_stabilizer", False):
@@ -527,6 +576,7 @@ def _run_upscale(args: argparse.Namespace) -> None:
         f"{result.final.shape[1]}x{result.final.shape[0]}"
     )
     print(f"Line mask: {result.line_maps.mask_area_ratio * 100:.2f}%")
+    print(f"Grayscale mode: {config['grayscale_processing']['mode']}")
     print(
         "Line renderer: "
         f"{config['pipeline']['line_renderer']} "
@@ -550,6 +600,8 @@ def _run_upscale(args: argparse.Namespace) -> None:
     for warning in result.line_maps.warnings:
         print(f"Warning: {warning}")
     print(f"Output: {Path(args.output)}")
+    if result.tone_output_path is not None:
+        print(f"Tone layer: {result.tone_output_path}")
     if result.run_json_path is not None:
         print(f"Run JSON: {result.run_json_path}")
     if args.debug_dir:
