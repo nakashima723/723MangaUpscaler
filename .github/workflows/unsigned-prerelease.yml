@@ -1,0 +1,218 @@
+name: Publish unsigned Windows pre-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing unsigned preview tag, for example v1.00-unsigned.1
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: unsigned-prerelease-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - name: Check out protected source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify unsigned preview tag and commit
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v1\.00-unsigned\.[1-9][0-9]*$') {
+            throw "Release tag must use the form v1.00-unsigned.1."
+          }
+          git check-ref-format "refs/tags/$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Invalid release tag."
+          }
+          $tagSha = git rev-list -n 1 $env:RELEASE_TAG
+          if (-not $tagSha -or $tagSha -ne $env:GITHUB_SHA) {
+            throw "The release tag must already point to this protected main commit."
+          }
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            throw "A GitHub release already exists for $env:RELEASE_TAG."
+          }
+          # `gh release view` returns 1 when the expected release is absent.
+          # Do not let that probe become this successful step's final exit code.
+          $global:LASTEXITCODE = 0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-release.txt
+
+      - name: Install hash-locked dependencies
+        run: |
+          python -m pip install --only-binary=:all: --require-hashes -r requirements-release.txt
+
+      - name: Verify source and dependencies
+        shell: pwsh
+        run: |
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m ruff check src tests examples
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pytest -q
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/collect_distribution_licenses.py build/license_bundle
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build unsigned one-file EXE
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_gui_exe.ps1
+
+      - name: Verify unsigned release candidate
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src
+        run: |
+          $exe = (Resolve-Path "dist/723MangaUpscaler.exe").Path
+          $distFiles = @(Get-ChildItem -LiteralPath "dist" -File)
+          $distDirectories = @(Get-ChildItem -LiteralPath "dist" -Directory)
+          if ($distFiles.Count -ne 1 -or $distDirectories.Count -ne 0) {
+            throw "The release build must contain exactly one file and no onedir output."
+          }
+          if ((Get-AuthenticodeSignature -LiteralPath $exe).Status -ne "NotSigned") {
+            throw "The public preview must remain unsigned."
+          }
+          $metadata = [Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
+          if ($metadata.ProductName -ne "723 Manga Upscaler" -or
+              $metadata.ProductVersion -ne "1.00" -or
+              $metadata.FileVersion -ne "1.00.0.0" -or
+              $metadata.OriginalFilename -ne "723MangaUpscaler.exe") {
+            throw "Windows version metadata does not match the unsigned 1.00 preview."
+          }
+
+          function Invoke-CheckedExe([string[]]$Arguments) {
+            $process = Start-Process -FilePath $exe -ArgumentList $Arguments -Wait -PassThru
+            if ($process.ExitCode -ne 0) {
+              throw "EXE diagnostic failed: $Arguments"
+            }
+          }
+
+          New-Item -ItemType Directory -Force "tmp/release-check" | Out-Null
+          python -m mlu.gui --check-upscale `
+            examples/synthetic_lineart.png tmp/release-check/source.png
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m mlu.gui --check-separate-psd `
+            examples/synthetic_lineart.png tmp/release-check/source.psd
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          Invoke-CheckedExe @("--version")
+          Invoke-CheckedExe @("--check-config")
+          Invoke-CheckedExe @("--check-ui")
+          Invoke-CheckedExe @(
+            "--check-upscale",
+            "examples/synthetic_lineart.png",
+            "tmp/release-check/unsigned.png"
+          )
+          Invoke-CheckedExe @(
+            "--check-separate-psd",
+            "examples/synthetic_lineart.png",
+            "tmp/release-check/unsigned.psd"
+          )
+
+          python -c "from PIL import Image; import numpy as np; a=np.asarray(Image.open('tmp/release-check/source.png')); b=np.asarray(Image.open('tmp/release-check/unsigned.png')); raise SystemExit(0 if np.array_equal(a,b) else 1)"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Unsigned EXE PNG pixels differ from the source build."
+          }
+          python -c "from PIL import Image; import numpy as np; a=np.asarray(Image.open('tmp/release-check/source.psd')); b=np.asarray(Image.open('tmp/release-check/unsigned.psd')); raise SystemExit(0 if np.array_equal(a,b) else 1)"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Unsigned EXE PSD composite pixels differ from the source build."
+          }
+          if ((Get-AuthenticodeSignature -LiteralPath $exe).Status -ne "NotSigned") {
+            throw "The verified preview unexpectedly acquired an Authenticode signature."
+          }
+
+          $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToUpperInvariant()
+          $checksumPath = Join-Path (Split-Path -Parent $exe) "723MangaUpscaler.exe.sha256"
+          $checksumText = "$hash  723MangaUpscaler.exe`n"
+          [IO.File]::WriteAllText(
+            $checksumPath,
+            $checksumText,
+            [Text.UTF8Encoding]::new($false)
+          )
+          "EXE_SHA256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload verified unsigned artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: 723MangaUpscaler-${{ inputs.release_tag }}-unsigned
+          path: |
+            dist/723MangaUpscaler.exe
+            dist/723MangaUpscaler.exe.sha256
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Publish clearly marked unsigned pre-release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notesPath = Join-Path $env:RUNNER_TEMP "unsigned-prerelease-notes.md"
+          $notes = @"
+          # UNSIGNED PRE-RELEASE
+
+          This is an unsigned preview of 723 Manga Upscaler 1.00. It does not
+          contain an Authenticode signature and must not be represented as a
+          trusted signed release. A SignPath-signed release may follow only
+          after separate review and approval.
+
+          This one-file Windows EXE can enlarge manga artwork and export
+          line-art PNG, separate line/tone PNG files, a composited grayscale
+          PNG, or a layered grayscale PSD containing Line Art, Grayscale Tone,
+          and Background layers. Processing is local and requires no account.
+
+          Build source: protected main commit $env:GITHUB_SHA
+
+          SHA-256 (723MangaUpscaler.exe):
+
+          $env:EXE_SHA256
+
+          Code signing policy:
+          https://github.com/$env:GITHUB_REPOSITORY/blob/$env:GITHUB_SHA/docs/12_code_signing_policy.md
+
+          Privacy policy:
+          https://github.com/$env:GITHUB_REPOSITORY/blob/$env:GITHUB_SHA/PRIVACY.md
+
+          Free code signing provided by SignPath.io, certificate by SignPath Foundation.
+
+          https://signpath.io/
+          https://signpath.org/
+          "@
+          [IO.File]::WriteAllText(
+            $notesPath,
+            $notes.Trim() + "`n",
+            [Text.UTF8Encoding]::new($false)
+          )
+          gh release create $env:RELEASE_TAG `
+            "dist/723MangaUpscaler.exe#723MangaUpscaler.exe" `
+            "dist/723MangaUpscaler.exe.sha256#723MangaUpscaler.exe.sha256" `
+            --repo $env:GITHUB_REPOSITORY `
+            --verify-tag `
+            --prerelease `
+            --title "723 Manga Upscaler 1.00 unsigned preview" `
+            --notes-file $notesPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not publish the unsigned GitHub pre-release."
+          }

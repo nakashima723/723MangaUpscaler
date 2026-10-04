@@ -87,6 +87,31 @@ def save_grayscale_png(
     image.save(output_path, format="PNG")
 
 
+def save_luminance_as_alpha_png(
+    path: str | Path,
+    luminance: FloatImage,
+    *,
+    overwrite: bool = False,
+) -> None:
+    """Save black RGB with ``alpha = 1 - luminance`` as an 8-bit RGBA PNG.
+
+    Compositing the result over white reconstructs the supplied luminance.
+    This is the PNG equivalent of converting grayscale luminance to opacity.
+    """
+
+    output_path = Path(path)
+    if output_path.exists() and not overwrite:
+        raise FileExistsError(f"Output already exists: {output_path}")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    clipped = np.clip(luminance, 0.0, 1.0)
+    rgba = np.zeros((*clipped.shape, 4), dtype=np.uint8)
+    rgba[..., 3] = np.rint(
+        (np.float32(1.0) - clipped) * np.float32(255.0)
+    ).astype(np.uint8)
+    Image.fromarray(rgba).save(output_path, format="PNG")
+
+
 def _image_to_gray(image: Image.Image, *, invert: bool) -> FloatImage:
     if image.mode in {"1", "L", "I;16", "I"}:
         return ensure_float_gray(np.asarray(image), invert=invert)

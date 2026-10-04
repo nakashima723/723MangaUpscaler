@@ -11,6 +11,27 @@ pipeline:
   tone_mode: white_canvas
   debug: true
 
+grayscale_processing:
+  # legacy / line_only / separate / composite
+  mode: legacy
+  # png / psd. GUI overrides this to psd when its default-on checkbox is enabled.
+  separate_output_format: png
+  closing_radius: 6
+  weak_relative_contrast: 0.035
+  strong_relative_contrast: 0.12
+  # quality_hybrid / relative_contrast / detection_probability
+  line_coverage_mode: quality_hybrid
+  # Fixed relative-side gain. Do not derive it from the current SDF threshold.
+  relative_coverage_gain: 2.425
+  # Route gray areas to relative coverage and near-white areas to legacy line_soft.
+  legacy_blend_start: 0.90
+  legacy_blend_end: 0.98
+  weak_absolute_contrast: 0.00392156862745098
+  strong_absolute_contrast: 0.011764705882352941
+  tone_floor: 0.00392156862745098
+  tone_dilate_radius: 1
+  tone_feather_sigma: 0.5
+
 mask:
   black_threshold: 0.72
   soft_coverage:
