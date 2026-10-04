@@ -126,6 +126,44 @@ cleanup:
   fill_holes_area: 12
 ```
 
+### 3.7 相対分離とquality_hybrid
+
+グレー面とその上の線を分離する `line_only` / `separate` / `composite` では、半径6 source pxのグレースケールclosingで局所階調 `B` を推定する。入力輝度を `I` とし、相対暗化率を次で求める。
+
+```text
+C = clip((B - I) / max(B, tone_floor), 0, 1)
+```
+
+相対差と絶対差のweak/strong条件からヒステリシスとcleanupを通した相対線support `R` を作る。相対側の素の線coverageは `R * C` である。
+
+既定の `line_coverage_mode: quality_hybrid` は、白地で従来線画の品質を保ちつつ、グレー面を線として塗り潰さないよう、従来の `line_soft` と相対coverageを連続的にルーティングする。
+
+```text
+W = smoothstep(legacy_blend_start, legacy_blend_end, routing_background)
+A_relative = clip(R * C * relative_coverage_gain, 0, 1)
+A_line = W * A_legacy + (1 - W) * A_relative
+```
+
+既定値は以下。
+
+```yaml
+grayscale_processing:
+  line_coverage_mode: quality_hybrid
+  relative_coverage_gain: 2.425
+  legacy_blend_start: 0.90
+  legacy_blend_end: 0.98
+```
+
+局所階調が0.90以下では相対側、0.98以上では従来側を使い、その間はsmoothstepで連続補間する。`relative_coverage_gain` は固定値であり、現在の `sdf.soft_sdf_threshold` から動的に算出しない。これによりGUIの明るさ設定とCLIのSDF閾値が無効化されず、閾値を上げれば線supportが減り、下げれば増える。比較・切り分け用として、gainを使わない `relative_contrast` と旧方式相当の `detection_probability` も残す。
+
+tone側は相対線supportだけでなくhybridで拾った線supportも局所背景へ置換する。これにより `separate` のtoneレイヤーや `composite` の下地へ白地の線が残り、SDF線と二重になることを避ける。
+
+### 3.8 グレースケールPSD分離出力
+
+`separate_output_format: psd` ではPSD v1のカラーモードをGrayscale、深度を `io.output_bit_depth` の8または16 bits/channelとする。レイヤーは上から `Line Art`、`Grayscale Tone`、`Background` の3層とする。前2層はグレー値0の黒画素と透明度チャンネルを持ち、線画alphaは `1 - final_line_luminance`、グレーalphaは `1 - tone_luminance`、背景は不透明な白とする。全レイヤーを通常表示した統合画像は `tone_luminance * final_line_luminance` となり、`composite` と一致する。
+
+チャンネルはPSD標準のPackBits RLEで保存する。外部PSDライブラリには依存せず、Adobe公開仕様のPSD v1 header、layer record、grayscale channel、transparency channel、merged imageだけを実装対象とする。PSDの30,000px/辺上限を超える場合はエラーとする。
+
 ## 4. tone_source生成
 
 ### 4.1 なぜ必要か
@@ -270,6 +308,8 @@ sdf:
 ```
 
 内部で `width_bias_hr_px = width_bias_source_px * scale` に変換する。
+
+グレー分離モード専用の線幅biasは持たない。すべてのモードで共通の `sdf.width_bias_source_px` だけを参照し、`quality_hybrid` はcoverage分離と白地線の再現に専念する。
 
 ### 5.5 アンチエイリアス
 

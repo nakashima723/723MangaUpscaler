@@ -11,6 +11,7 @@ from typing import Any
 from mlu import __version__
 from mlu.grayscale import FloatImage
 from mlu.io import ImageData, save_grayscale_png
+from mlu.layer_separation import LayerSeparationResult
 from mlu.mask_extract import LineMaps
 from mlu.sdf_render import SDFRenderResult, sdf_preview
 from mlu.tone_source import ToneSourceResult
@@ -25,6 +26,7 @@ def save_debug_layers(
     final: FloatImage,
     tone_source_result: ToneSourceResult | None = None,
     upscaler_result: UpscalerResult | None = None,
+    separation_result: LayerSeparationResult | None = None,
 ) -> tuple[Path, ...]:
     """Save MVP debug layers as 8bit PNG files."""
 
@@ -72,6 +74,25 @@ def save_debug_layers(
         layers.append(("07_tone_source.png", tone_source_result.image))
     if upscaler_result is not None and upscaler_result.engine != "none":
         layers.append((f"{len(layers):02d}_tone_hr.png", upscaler_result.image))
+    if separation_result is not None:
+        layers.extend(
+            [
+                (f"{len(layers):02d}_relative_line_alpha.png", separation_result.line_alpha),
+                (
+                    f"{len(layers) + 1:02d}_render_line_coverage.png",
+                    separation_result.line_maps.line_soft,
+                ),
+                (
+                    f"{len(layers) + 2:02d}_legacy_blend_weight.png",
+                    separation_result.legacy_blend_weight,
+                ),
+                (
+                    f"{len(layers) + 3:02d}_relative_contrast.png",
+                    separation_result.relative_contrast,
+                ),
+                (f"{len(layers) + 4:02d}_estimated_tone.png", separation_result.tone),
+            ]
+        )
     if sdf_result.line_soft_hr is not None:
         layers.append((f"{len(layers):02d}_line_soft_hr.png", sdf_result.line_soft_hr))
     if sdf_result.soft_mask_hr is not None:

@@ -15,6 +15,7 @@ from mlu.gui import (
     ALL_EXTENSIONS_LABEL,
     BRIGHTNESS_MAX,
     BRIGHTNESS_MIN,
+    GRAYSCALE_MODE_LABELS,
     OutputPreviewRequest,
     PreviewViewState,
     UpscalerGui,
@@ -23,6 +24,8 @@ from mlu.gui import (
     discover_gui_batch_images,
     format_brightness_label,
     generate_output_preview_image,
+    load_export_config,
+    load_output_preview_image,
     main,
     make_batch_output_paths,
     make_output_path,
@@ -31,6 +34,7 @@ from mlu.gui import (
     output_preview_requires_confirmation,
     output_preview_size,
     preview_geometry_from_view_state,
+    selected_separate_psd,
     threshold_from_brightness,
 )
 from mlu.pipeline import upscale_image
@@ -60,6 +64,35 @@ def test_format_brightness_label_uses_signed_integer_display() -> None:
     assert format_brightness_label(0) == "明るさ: 0"
     assert format_brightness_label(1) == "明るさ: +1"
     assert format_brightness_label(-1) == "明るさ: -1"
+
+
+def test_load_export_config_carries_grayscale_mode() -> None:
+    config = load_export_config(
+        scale=2,
+        threshold=0.36,
+        grayscale_mode="composite",
+    )
+
+    assert config["grayscale_processing"]["mode"] == "composite"
+    assert config["grayscale_processing"]["separate_output_format"] == "png"
+
+    psd_config = load_export_config(
+        scale=2,
+        threshold=0.36,
+        grayscale_mode="separate",
+        separate_output_format="psd",
+    )
+    assert psd_config["grayscale_processing"]["separate_output_format"] == "psd"
+
+
+def test_selected_separate_psd_only_applies_to_separate_mode() -> None:
+    app = SimpleNamespace(separate_psd_enabled=_StubVariable(True))
+
+    assert selected_separate_psd(app, "separate") is True
+    assert selected_separate_psd(app, "legacy") is False
+    app.separate_psd_enabled.set(False)
+    assert selected_separate_psd(app, "separate") is False
+    assert selected_separate_psd(SimpleNamespace(), "separate") is False
 
 
 def test_brightness_buttons_adjust_one_step_and_do_not_repeat_at_bounds() -> None:
@@ -100,6 +133,46 @@ def test_make_output_path_is_unique(tmp_path) -> None:
     assert second.name == "sample01_x4_thr034_2.png"
 
 
+def test_make_output_path_reserves_separate_tone_sidecar(tmp_path) -> None:
+    input_path = Path("sample01.png")
+    (tmp_path / "sample01_x4_thr034_tone.png").write_bytes(b"existing")
+
+    output = make_output_path(
+        input_path,
+        tmp_path,
+        scale=4,
+        threshold=0.34,
+        grayscale_mode="separate",
+    )
+
+    assert output.name == "sample01_x4_thr034_2.png"
+
+
+def test_make_output_path_uses_and_reserves_psd_for_separate_mode(tmp_path) -> None:
+    input_path = Path("sample01.png")
+    first = make_output_path(
+        input_path,
+        tmp_path,
+        scale=4,
+        threshold=0.34,
+        grayscale_mode="separate",
+        separate_psd=True,
+    )
+    first.write_bytes(b"existing")
+
+    second = make_output_path(
+        input_path,
+        tmp_path,
+        scale=4,
+        threshold=0.34,
+        grayscale_mode="separate",
+        separate_psd=True,
+    )
+
+    assert first.name == "sample01_x4_thr034.psd"
+    assert second.name == "sample01_x4_thr034_2.psd"
+
+
 def test_make_batch_output_paths_reserves_duplicate_stems(tmp_path) -> None:
     (tmp_path / "same_x4_thr036.png").write_bytes(b"")
 
@@ -113,6 +186,19 @@ def test_make_batch_output_paths_reserves_duplicate_stems(tmp_path) -> None:
     assert [path.name for path in output_paths] == [
         "same_x4_thr036_2.png",
         "same_x4_thr036_3.png",
+    ]
+
+    psd_paths = make_batch_output_paths(
+        (Path("first.png"), Path("second.png")),
+        tmp_path,
+        scale=2,
+        threshold=0.291,
+        grayscale_mode="separate",
+        separate_psd=True,
+    )
+    assert [path.name for path in psd_paths] == [
+        "first_x2_thr029.psd",
+        "second_x2_thr029.psd",
     ]
 
 
@@ -167,6 +253,8 @@ def test_discover_gui_batch_images_excludes_gui_outputs_when_output_is_input(tmp
     (tmp_path / "source.png").write_bytes(b"")
     (tmp_path / "source_x4_thr036.png").write_bytes(b"")
     (tmp_path / "source_x4_thr036_2.png").write_bytes(b"")
+    (tmp_path / "source_x4_thr036_tone.png").write_bytes(b"")
+    (tmp_path / "source_x4_thr036_2_tone.png").write_bytes(b"")
 
     paths = discover_gui_batch_images(
         tmp_path,
@@ -297,6 +385,98 @@ def test_generated_preview_pixels_match_actual_output_exactly(tmp_path) -> None:
             assert np.array_equal(np.asarray(preview), np.asarray(actual.convert("L")))
     finally:
         preview.close()
+
+
+def test_separate_preview_matches_composite_instead_of_line_layer(tmp_path) -> None:
+    input_path = tmp_path / "gray_input.png"
+    composite_path = tmp_path / "composite.png"
+    line_path = tmp_path / "line.png"
+    source = np.full((48, 64), 160, dtype=np.uint8)
+    source[8:40, 30:34] = 0
+    source[22:26, 8:56] = 0
+    Image.fromarray(source).save(input_path)
+    common_overrides = {
+        "io": {"overwrite": True},
+        "pipeline": {"scale": 2},
+        "sdf": {"soft_sdf_threshold": 0.291},
+    }
+    separate_config = load_config(
+        preset="line_only",
+        cli_overrides={
+            **common_overrides,
+            "grayscale_processing": {"mode": "separate"},
+        },
+    )
+    composite_config = load_config(
+        preset="line_only",
+        cli_overrides={
+            **common_overrides,
+            "grayscale_processing": {"mode": "composite"},
+        },
+    )
+
+    preview = generate_output_preview_image(input_path, separate_config)
+    assert separate_config["grayscale_processing"]["mode"] == "separate"
+    assert separate_config["grayscale_processing"]["separate_output_format"] == "png"
+    upscale_image(input_path, composite_path, composite_config, preset="line_only")
+    upscale_image(input_path, line_path, separate_config, preset="line_only")
+    try:
+        with Image.open(composite_path) as composite, Image.open(line_path) as line:
+            preview_pixels = np.asarray(preview)
+            np.testing.assert_array_equal(
+                preview_pixels,
+                np.asarray(composite.convert("L")),
+            )
+            assert not np.array_equal(preview_pixels, np.asarray(line.convert("L")))
+    finally:
+        preview.close()
+
+
+def test_separated_png_output_preview_merges_line_and_tone_files(tmp_path) -> None:
+    line_path = tmp_path / "separate.png"
+    tone_path = tmp_path / "separate_tone.png"
+    line = np.array([[255, 128], [64, 0]], dtype=np.uint8)
+    tone = np.array([[160, 200], [240, 255]], dtype=np.uint8)
+    tone_rgba = np.zeros((2, 2, 4), dtype=np.uint8)
+    tone_rgba[..., 3] = 255 - tone
+    Image.fromarray(line).save(line_path)
+    Image.fromarray(tone_rgba).save(tone_path)
+
+    preview = load_output_preview_image(
+        line_path,
+        tone_output_path=tone_path,
+    )
+    try:
+        expected = (line.astype(np.uint16) * tone.astype(np.uint16) // 255).astype(
+            np.uint8
+        )
+        np.testing.assert_array_equal(np.asarray(preview), expected)
+    finally:
+        preview.close()
+
+
+def test_finished_separated_png_export_previews_tone_sidecar(tmp_path) -> None:
+    output_path = tmp_path / "output.png"
+    tone_path = tmp_path / "output_tone.png"
+    loaded: list[tuple[Path, Path | None]] = []
+    app = SimpleNamespace(
+        _export_running=True,
+        _set_controls_enabled=lambda _enabled: None,
+        status_text=_StubVariable(""),
+        output_preview_enabled=_StubVariable(True),
+        _load_output_preview=lambda path, *, tone_output_path=None: loaded.append(
+            (path, tone_output_path)
+        ),
+    )
+
+    UpscalerGui._finish_export(
+        app,
+        output_path,
+        None,
+        tone_output_path=tone_path,
+    )
+
+    assert loaded == [(output_path, tone_path)]
 
 
 def test_minimum_brightness_preview_is_not_solid_black(tmp_path) -> None:
@@ -603,6 +783,21 @@ def test_gui_check_upscale_uses_exact_default_export_config(tmp_path, monkeypatc
     assert config["sdf"]["soft_sdf_threshold"] == threshold_from_brightness(0)
 
 
+def test_gui_check_separate_psd_writes_layered_output(tmp_path) -> None:
+    input_path = tmp_path / "input.png"
+    output_path = tmp_path / "output.psd"
+    image = np.full((12, 16), 220, dtype=np.uint8)
+    image[5:7, 2:14] = 40
+    Image.fromarray(image).save(input_path)
+
+    assert main(["--check-separate-psd", str(input_path), str(output_path)]) == 0
+
+    payload = output_path.read_bytes()
+    assert payload[:4] == b"8BPS"
+    assert b"Line Art" in payload
+    assert b"Grayscale Tone" in payload
+
+
 def test_gui_check_ui_builds_preview_checkbox_next_to_scale() -> None:
     app = UpscalerGui()
     app.withdraw()
@@ -617,6 +812,30 @@ def test_gui_check_ui_builds_preview_checkbox_next_to_scale() -> None:
         ]
         assert "入力画像および出力結果のプレビューがここに表示されます。" in placeholder_texts
         assert app.output_preview_enabled.get() is True
+        assert app.grayscale_mode_heading.cget("text") == "グレー部分の扱い"
+        assert app.grayscale_mode_label.get() == "線画と黒ベタのみ"
+        assert list(app.grayscale_mode_box.cget("values")) == list(GRAYSCALE_MODE_LABELS)
+        assert app.separate_psd_enabled.get() is True
+        assert app.separate_psd_checkbox.cget("text") == "PSDで出力する"
+        assert app.separate_psd_checkbox in app._processing_controls
+        assert app.separate_psd_checkbox.grid_info() == {}
+        app.grayscale_mode_label.set("線画とグレー部分を分けて出力")
+        app._on_grayscale_mode_changed(app.grayscale_mode_label.get())
+        assert app.separate_psd_checkbox.grid_info()
+        assert app.separate_psd_checkbox.master is app.grayscale_mode_box.master
+        assert int(app.grayscale_mode_box.grid_info()["column"]) == 0
+        assert int(app.separate_psd_checkbox.grid_info()["column"]) == 1
+        app.update_idletasks()
+        assert app.separate_psd_checkbox.winfo_x() >= (
+            app.grayscale_mode_box.winfo_x() + app.grayscale_mode_box.winfo_width()
+        )
+        app.separate_psd_enabled.set(False)
+        app.grayscale_mode_label.set("線画と黒ベタのみ")
+        app._on_grayscale_mode_changed(app.grayscale_mode_label.get())
+        assert app.separate_psd_checkbox.grid_info() == {}
+        app.grayscale_mode_label.set("線画とグレー部分を分けて出力")
+        app._on_grayscale_mode_changed(app.grayscale_mode_label.get())
+        assert app.separate_psd_enabled.get() is False
         assert app.scale_box.master is app.output_preview_checkbox.master
         assert int(app.scale_box.grid_info()["column"]) == 0
         assert int(app.output_preview_checkbox.grid_info()["column"]) == 1
@@ -689,7 +908,7 @@ def test_batch_export_ok_freezes_jobs_and_starts_one_worker(tmp_path, monkeypatc
     target, args, daemon = started[0]
     assert target is app._run_batch_export_worker
     assert tuple(input_path for input_path, _output_path in args[0]) == input_paths
-    assert args[1:] == (4, 0.36)
+    assert args[1:] == (4, 0.36, "legacy", "png")
     assert daemon is True
     assert app.status_text.get() == "一括変換を開始します（全2枚）。"
 
@@ -739,18 +958,19 @@ def test_batch_worker_continues_after_a_file_fails(tmp_path, monkeypatch) -> Non
     calls: list[Path] = []
     finished: list[tuple[Path | None, int, tuple[tuple[Path, str], ...], object]] = []
 
-    def fake_upscale(input_path, _output_path, _config, *, preset) -> None:
+    def fake_upscale(input_path, _output_path, _config, *, preset):
         assert preset == "line_only"
         calls.append(input_path)
         if input_path == jobs[1][0]:
             raise ValueError("broken image")
+        return SimpleNamespace(tone_output_path=None)
 
     app = SimpleNamespace(
         status_text=_StubVariable(""),
         _load_export_config=lambda **_kwargs: {},
         after=lambda _delay, callback: callback(),
-        _finish_batch_export=lambda first, succeeded, failures, error: finished.append(
-            (first, succeeded, failures, error)
+        _finish_batch_export=lambda first, succeeded, failures, error, **_kwargs: (
+            finished.append((first, succeeded, failures, error))
         ),
         _pipeline_lock=gui_module.threading.Lock(),
     )
